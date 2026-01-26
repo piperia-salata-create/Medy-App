@@ -48,7 +48,7 @@ export const AuthProvider = ({ children }) => {
     };
   }, [loading, loadingTimedOut]);
 
-  // Fetch user profile
+  // Fetch user profile - creates if missing using metadata role
   const fetchProfile = useCallback(async (userId) => {
     try {
       const { data, error } = await supabase
@@ -57,7 +57,40 @@ export const AuthProvider = ({ children }) => {
         .eq('id', userId)
         .single();
 
-      if (error && error.code !== 'PGRST116') {
+      if (error && error.code === 'PGRST116') {
+        // Profile doesn't exist - this can happen if trigger didn't fire
+        // Get current user to read metadata
+        const { data: { user: currentUser } } = await supabase.auth.getUser();
+        const metadataRole = currentUser?.user_metadata?.role;
+        const finalRole = (metadataRole === 'pharmacist') ? 'pharmacist' : 'patient';
+        
+        console.log('Profile not found, creating with role:', finalRole);
+        
+        // Create profile with role from metadata
+        const { data: newProfile, error: createError } = await supabase
+          .from('profiles')
+          .insert([{
+            id: userId,
+            role: finalRole,
+            email: currentUser?.email,
+            full_name: currentUser?.user_metadata?.full_name || '',
+            pharmacy_name: currentUser?.user_metadata?.pharmacy_name || null,
+            language: 'el',
+            senior_mode: false
+          }])
+          .select()
+          .single();
+
+        if (createError) {
+          console.error('Error creating profile:', createError);
+          return null;
+        }
+
+        setProfile(newProfile);
+        return newProfile;
+      }
+      
+      if (error) {
         throw error;
       }
       
