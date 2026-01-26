@@ -3,19 +3,15 @@ import ReactDOM from "react-dom/client";
 import "@/index.css";
 import App from "@/App";
 
+// Service worker completely disabled - no registration in any environment
+// Unregister any existing service workers
 if ("serviceWorker" in navigator) {
-  if (process.env.NODE_ENV === "production") {
-    window.addEventListener("load", () => {
-      const swUrl = `${process.env.PUBLIC_URL}/sw.js`;
-      navigator.serviceWorker.register(swUrl);
+  navigator.serviceWorker.getRegistrations().then((registrations) => {
+    registrations.forEach((registration) => {
+      registration.unregister();
+      console.log('Service worker unregistered');
     });
-  } else {
-    navigator.serviceWorker.getRegistrations().then((registrations) => {
-      registrations.forEach((registration) => {
-        registration.unregister();
-      });
-    });
-  }
+  });
 }
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
