@@ -192,19 +192,7 @@ function AppRoutes() {
 }
 
 function App() {
-  useEffect(() => {
-    if (process.env.NODE_ENV !== "production") {
-      return;
-    }
-
-    try {
-      import("./analytics").catch((err) => {
-        console.warn("Analytics failed to load", err);
-      });
-    } catch (err) {
-      console.warn("Analytics failed to load", err);
-    }
-  }, []);
+  // Analytics and Emergent artifacts removed - no external runtime tooling
 
   return (
     <BrowserRouter>
