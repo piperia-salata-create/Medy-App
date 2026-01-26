@@ -89,8 +89,9 @@ export default function VerifyOtpPage() {
 
       sessionStorage.removeItem('pendingProfile');
 
-      // Redirect based on DB profile role (not pendingProfile)
-      if (profileRow?.role?.includes('pharmacist')) {
+      // Redirect based on DB profile role (single source of truth)
+      // Role is now either 'patient' or 'pharmacist' exactly
+      if (profileRow?.role === 'pharmacist') {
         navigate('/pharmacist/dashboard');
       } else {
         navigate('/patient/dashboard');
