@@ -73,9 +73,9 @@ const ProtectedRoute = ({ children, requiredRole }) => {
 
 // Public Route - redirect if already logged in
 const PublicRoute = ({ children }) => {
-  const { user, profile, loading } = useAuth();
+  const { user, profile, loading, loadingTimedOut, isPharmacist } = useAuth();
 
-  if (loading) {
+  if (loading && !loadingTimedOut) {
     return (
       <div className="min-h-screen bg-pharma-ice-blue flex items-center justify-center">
         <div className="animate-pulse-soft">
@@ -85,8 +85,9 @@ const PublicRoute = ({ children }) => {
     );
   }
 
+  // If user is logged in and has a profile, redirect based on role
   if (user && profile) {
-    if (profile.role?.includes('pharmacist')) {
+    if (isPharmacist()) {
       return <Navigate to="/pharmacist" replace />;
     }
     return <Navigate to="/patient" replace />;
