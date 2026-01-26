@@ -46,15 +46,26 @@ export default function SignUpPage() {
 
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signUp({ email, password });
+      // CRITICAL: Pass role in user metadata so DB trigger can read it
+      const { error } = await supabase.auth.signUp({ 
+        email, 
+        password,
+        options: {
+          data: {
+            role: role, // 'patient' or 'pharmacist' - MUST be passed here
+            full_name: fullName,
+            pharmacy_name: role === 'pharmacist' ? pharmacyName : null
+          }
+        }
+      });
       
       if (error) {
         toast.error(error.message);
       } else {
-        // Store pending profile with correct role (patient or pharmacist)
+        // Store pending profile for OTP verification page
         const pendingProfile = {
           full_name: fullName,
-          role: role, // Store exactly as selected: 'patient' or 'pharmacist'
+          role: role, // 'patient' or 'pharmacist' exactly as selected
           pharmacy_name: role === 'pharmacist' ? pharmacyName : null,
           language,
           senior_mode: seniorMode
