@@ -51,9 +51,10 @@ export default function SignUpPage() {
       if (error) {
         toast.error(error.message);
       } else {
+        // Store pending profile with correct role (patient or pharmacist)
         const pendingProfile = {
           full_name: fullName,
-          role: role === 'pharmacist' ? 'pharmacist_pending' : 'patient',
+          role: role, // Store exactly as selected: 'patient' or 'pharmacist'
           pharmacy_name: role === 'pharmacist' ? pharmacyName : null,
           language,
           senior_mode: seniorMode
