@@ -255,15 +255,19 @@ export const AuthProvider = ({ children }) => {
     session,
     profile,
     loading,
+    loadingTimedOut,
     error,
     signUp,
     signIn,
     signOut,
     updateProfile,
+    createProfile,
+    fetchProfile,
     isVerifiedPharmacist,
     isPendingPharmacist,
     isPatient,
     isPharmacist,
+    getRole,
     ROLES
   };
 
