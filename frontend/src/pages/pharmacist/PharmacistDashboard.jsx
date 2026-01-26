@@ -251,6 +251,12 @@ export default function PharmacistDashboard() {
                 </Button>
               </Link>
             )}
+            <Link to="/pharmacist/connections" onClick={() => setMobileMenuOpen(false)}>
+              <Button variant="ghost" className="w-full justify-start gap-3 rounded-xl">
+                <Users className="w-5 h-5" />
+                {language === 'el' ? 'Συνδέσεις' : 'Connections'}
+              </Button>
+            </Link>
             <Link to="/pharmacist/analytics" onClick={() => setMobileMenuOpen(false)}>
               <Button variant="ghost" className="w-full justify-start gap-3 rounded-xl">
                 <BarChart3 className="w-5 h-5" />
