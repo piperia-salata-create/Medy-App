@@ -23,11 +23,12 @@ import InterPharmacyPage from "./pages/pharmacist/InterPharmacyPage";
 import SettingsPage from "./pages/shared/SettingsPage";
 import NotificationsPage from "./pages/shared/NotificationsPage";
 
-// Protected Route Component
+// Protected Route Component with loading timeout safeguard
 const ProtectedRoute = ({ children, requiredRole }) => {
-  const { user, profile, loading } = useAuth();
+  const { user, profile, loading, loadingTimedOut, isPharmacist, isPatient } = useAuth();
 
-  if (loading) {
+  // Show loading spinner, but with timeout safeguard
+  if (loading && !loadingTimedOut) {
     return (
       <div className="min-h-screen bg-pharma-ice-blue flex items-center justify-center">
         <div className="animate-pulse-soft">
@@ -42,15 +43,28 @@ const ProtectedRoute = ({ children, requiredRole }) => {
     );
   }
 
+  // Loading timed out - show recoverable error state
+  if (loadingTimedOut && !user) {
+    return (
+      <div className="min-h-screen bg-pharma-ice-blue flex items-center justify-center p-4">
+        <div className="text-center">
+          <p className="text-pharma-dark-slate mb-4">Something went wrong. Please try again.</p>
+          <a href="/signin" className="text-pharma-teal underline">Go to Sign In</a>
+        </div>
+      </div>
+    );
+  }
+
   if (!user) {
     return <Navigate to="/signin" replace />;
   }
 
-  if (requiredRole === 'patient' && profile?.role?.includes('pharmacist')) {
+  // Role-based routing using centralized role checks
+  if (requiredRole === 'patient' && isPharmacist()) {
     return <Navigate to="/pharmacist" replace />;
   }
 
-  if (requiredRole === 'pharmacist' && profile?.role === 'patient') {
+  if (requiredRole === 'pharmacist' && isPatient()) {
     return <Navigate to="/patient" replace />;
   }
 
