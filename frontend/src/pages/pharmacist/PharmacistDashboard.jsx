@@ -31,7 +31,7 @@ import {
 } from 'lucide-react';
 
 export default function PharmacistDashboard() {
-  const { user, profile, signOut, isVerifiedPharmacist, isPendingPharmacist } = useAuth();
+  const { user, profile, signOut, isVerifiedPharmacist } = useAuth();
   const { t, language } = useLanguage();
   const { unreadCount } = useNotifications();
   const navigate = useNavigate();
