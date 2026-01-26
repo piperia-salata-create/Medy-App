@@ -31,13 +31,8 @@ export default function SignInPage() {
         toast.error(error.message);
       } else if (data?.user) {
         toast.success(language === 'el' ? 'Καλώς ήρθατε!' : 'Welcome back!');
-        // Navigate based on role from profile
-        const userRole = data.user.user_metadata?.role;
-        if (userRole?.includes('pharmacist')) {
-          navigate('/pharmacist');
-        } else {
-          navigate('/patient');
-        }
+        // Navigation is handled by PublicRoute redirect after profile loads
+        // The AuthContext fetchProfile will set the profile, triggering redirect
       }
     } catch (err) {
       toast.error(t('errorOccurred'));
