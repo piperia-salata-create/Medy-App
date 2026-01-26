@@ -175,6 +175,11 @@ function AppRoutes() {
           <InterPharmacyPage />
         </ProtectedRoute>
       } />
+      <Route path="/pharmacist/connections" element={
+        <ProtectedRoute requiredRole="pharmacist">
+          <PharmacistConnectionsPage />
+        </ProtectedRoute>
+      } />
       <Route path="/pharmacist/notifications" element={
         <ProtectedRoute requiredRole="pharmacist">
           <NotificationsPage />
