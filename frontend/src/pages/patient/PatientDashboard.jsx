@@ -103,6 +103,10 @@ export default function PatientDashboard() {
   const [myRequests, setMyRequests] = useState([]);
   const [requestsLoading, setRequestsLoading] = useState(false);
   const [showExpiredRequests, setShowExpiredRequests] = useState(false);
+  const [requestsTab, setRequestsTab] = useState('active'); // 'active' or 'history'
+  const [historyVisibleCount, setHistoryVisibleCount] = useState(5);
+  const [acceptedCancelCountThisMonth, setAcceptedCancelCountThisMonth] = useState(0);
+  const remainingAcceptedCancels = Math.max(0, 3 - acceptedCancelCountThisMonth);
   const [nowTick, setNowTick] = useState(Date.now());
   const initFetchSessionRef = useRef(null);
 
@@ -178,11 +182,13 @@ export default function PatientDashboard() {
       if (expireError) {
         console.error('Error expiring patient requests:', expireError);
       }
+
+      // Single query - no .or(), no expires_at filtering
       const { data, error } = await supabase
         .from('patient_requests')
         .select('*')
         .eq('patient_id', user.id)
-        .gt('expires_at', nowIso)
+        .in('status', ['pending', 'accepted', 'cancelled', 'rejected'])
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -230,6 +236,34 @@ export default function PatientDashboard() {
       console.error('Error fetching requests:', error);
     } finally {
       setRequestsLoading(false);
+    }
+  }, [user, nowTick]);
+
+  // Fetch accepted-cancel monthly usage
+  const fetchAcceptedCancelCount = useCallback(async () => {
+    if (!user) return;
+    try {
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const monthStartIso = monthStart.toISOString();
+
+      const { data, error } = await supabase
+        .from('patient_requests')
+        .select('id', { count: 'exact' })
+        .eq('patient_id', user.id)
+        .eq('status', 'cancelled')
+        .eq('cancelled_by', 'patient')
+        .eq('cancel_kind', 'accepted')
+        .gte('cancelled_at', monthStartIso);
+
+      if (error) {
+        console.error('Error fetching accepted cancel count:', error);
+        return;
+      }
+
+      setAcceptedCancelCountThisMonth(data?.length || 0);
+    } catch (err) {
+      console.error('Error fetching accepted cancel count:', err);
     }
   }, [user]);
 
@@ -353,6 +387,7 @@ export default function PatientDashboard() {
       setRequestUrgency('normal');
       setRequestDuration('1h');
       await fetchMyRequests();
+      setRequestsTab('active');
 
       const section = document.getElementById('my-requests-section');
       if (section) {
@@ -366,32 +401,33 @@ export default function PatientDashboard() {
     }
   };
 
-  const cancelPatientRequest = async (requestId) => {
+  const cancelPatientRequest = async (requestId, request) => {
     if (!user || !requestId) return;
+    console.log('[cancel] requestId:', requestId, 'type:', typeof requestId);
+    console.log('[cancel click] request object:', request);
+    console.log('[cancel click] request.id:', request?.id);
+    console.log('[cancel click] request.request_id:', request?.request_id);
     setCancelingId(requestId);
     try {
-      const { error } = await supabase
-        .from('patient_requests')
-        .update({ status: 'cancelled' })
-        .eq('id', requestId)
-        .eq('patient_id', user.id);
+      const { error } = await supabase.rpc('cancel_patient_request', { p_request_id: requestId });
 
-      if (error) throw error;
-
-      const { error: recipientsError } = await supabase
-        .from('patient_request_recipients')
-        .update({ status: 'cancelled' })
-        .eq('request_id', requestId);
-
-      if (recipientsError) {
-        console.warn('Failed to cancel recipients:', recipientsError);
+      if (error) {
+        console.error('Error cancelling request:', error);
+        if (String(error.message).includes('CANCEL_LIMIT_REACHED')) {
+          toast.error(language === 'el' 
+            ? 'Έχεις φτάσει το όριο ακυρώσεων (3/μήνα) για αποδεκτά αιτήματα.'
+            : 'You have reached the cancel limit (3/month) for accepted requests.');
+        } else {
+          toast.error(language === 'el' 
+            ? 'Αποτυχία ακύρωσης αιτήματος.'
+            : 'Failed to cancel request.');
+        }
+        return;
       }
 
       toast.success(language === 'el' ? 'Το αίτημα ακυρώθηκε.' : 'Request cancelled.');
       fetchMyRequests();
-    } catch (error) {
-      console.error('Error cancelling request:', error);
-      toast.error(t('errorOccurred'));
+      fetchAcceptedCancelCount();
     } finally {
       setCancelingId(null);
     }
@@ -521,6 +557,19 @@ export default function PatientDashboard() {
     return new Date(value).toLocaleString(language === 'el' ? 'el-GR' : 'en-US');
   };
 
+  const formatDate = (value) => {
+    if (!value) return '';
+    return new Date(value).toLocaleString(language === 'el' ? 'el-GR' : 'en-US');
+  };
+
+  const getHistoryStatusLabel = (request) => {
+    const isExpired = request.expires_at && new Date(request.expires_at).getTime() <= Date.now();
+    if (request.status === 'cancelled') return language === 'el' ? 'Ακυρώθηκε' : 'Cancelled';
+    if (request.status === 'rejected') return language === 'el' ? 'Απορρίφθηκε' : 'Rejected';
+    if (isExpired) return language === 'el' ? 'Έληξε' : 'Expired';
+    return language === 'el' ? 'Ολοκληρώθηκε' : 'Completed';
+  };
+
   const formatPharmacyHours = (hoursValue) => {
     if (!hoursValue || typeof hoursValue !== 'string') return null;
     let parsed;
@@ -593,17 +642,39 @@ export default function PatientDashboard() {
     return target;
   };
 
+  // Client-side derived lists
+  const activeRequests = useMemo(() => {
+    const now = Date.now();
+    return (myRequests || []).filter(request => {
+      const isPendingOrAccepted = request.status === 'pending' || request.status === 'accepted';
+      const isNotExpired = !request.expires_at || new Date(request.expires_at).getTime() > now;
+      return isPendingOrAccepted && isNotExpired;
+    }).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  }, [myRequests]);
+
+  const historyRequests = useMemo(() => {
+    const now = Date.now();
+    return (myRequests || []).filter(request => {
+      const isCancelledOrRejected = request.status === 'cancelled' || request.status === 'rejected';
+      const isTimeExpired = request.expires_at && new Date(request.expires_at).getTime() <= now;
+      return isCancelledOrRejected || isTimeExpired;
+    }).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  }, [myRequests]);
+
   const visibleRequests = useMemo(() => {
-    const sorted = [...(myRequests || [])].sort((a, b) => {
-      const aExpired = isExpiredRequest(a);
-      const bExpired = isExpiredRequest(b);
-      if (aExpired !== bExpired) return aExpired ? 1 : -1;
-      return new Date(b.created_at) - new Date(a.created_at);
-    });
-    return showExpiredRequests
-      ? sorted
-      : sorted.filter((request) => !isExpiredRequest(request));
-  }, [myRequests, showExpiredRequests, nowTick]);
+    if (requestsTab === 'active') {
+      return activeRequests;
+    }
+    // History tab: progressive reveal
+    return historyRequests.slice(0, historyVisibleCount);
+  }, [requestsTab, activeRequests, historyRequests, historyVisibleCount]);
+
+  // Reset historyVisibleCount when switching tabs
+  useEffect(() => {
+    if (requestsTab === 'history') {
+      setHistoryVisibleCount(5);
+    }
+  }, [requestsTab]);
 
   // Handle sign out
   const handleSignOut = async () => {
@@ -641,6 +712,7 @@ export default function PatientDashboard() {
     const init = async () => {
       setLoading(true);
       await Promise.all([fetchPharmacies(), fetchFavorites(), fetchMyRequests()]);
+      await fetchAcceptedCancelCount();
       setLoading(false);
     };
     init();
@@ -886,17 +958,32 @@ export default function PatientDashboard() {
             <h2 className="font-heading text-lg font-semibold text-pharma-dark-slate">
               {t('myRequestsTitle')}
             </h2>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="ml-auto rounded-full text-pharma-slate-grey"
-              onClick={() => setShowExpiredRequests(prev => !prev)}
-              data-testid="toggle-expired-requests-btn"
+          </div>
+
+          {/* Tabs for Active/History */}
+          <div className="flex gap-2 mb-4">
+            <button
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                requestsTab === 'active'
+                  ? 'bg-pharma-teal text-white'
+                  : 'bg-white text-pharma-slate-grey border border-pharma-grey-pale'
+              }`}
+              onClick={() => setRequestsTab('active')}
+              data-testid="tab-active"
             >
-              {showExpiredRequests
-                ? (language === 'el' ? 'Απόκρυψη ληγμένων' : 'Hide expired')
-                : (language === 'el' ? 'Εμφάνιση ληγμένων' : 'Show expired')}
-            </Button>
+              {language === 'el' ? 'Ενεργά' : 'Active'}
+            </button>
+            <button
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                requestsTab === 'history'
+                  ? 'bg-pharma-teal text-white'
+                  : 'bg-white text-pharma-slate-grey border border-pharma-grey-pale'
+              }`}
+              onClick={() => setRequestsTab('history')}
+              data-testid="tab-history"
+            >
+              {language === 'el' ? 'Ιστορικό' : 'History'}
+            </button>
           </div>
 
           {requestsLoading ? (
@@ -908,53 +995,69 @@ export default function PatientDashboard() {
               description={t('myRequestsEmptyDesc')}
             />
           ) : (
-            <div className="space-y-3">
-              {visibleRequests.map((request) => {
-                const expired = isExpiredRequest(request);
-                const statusKey = expired ? 'expired' : request.status;
-                const statusConfig = getRequestStatusConfig(statusKey);
-                const lastResponse = getLastResponse(request.patient_request_recipients);
-                const summary = getRecipientSummary(request.patient_request_recipients);
-                const remainingLabel = getRemainingLabel(request.expires_at);
-                const canCancel = !expired && request.status !== 'cancelled';
-                return (
-                  <Card
-                    key={request.id}
-                    className="bg-white rounded-2xl shadow-card border-pharma-grey-pale"
-                    data-testid={`patient-request-${request.id}`}
-                  >
-                    <CardContent className="p-4 space-y-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <h3 className="font-heading font-semibold text-pharma-dark-slate truncate">
-                            {request.medicine_query}
-                          </h3>
-                          <div className="text-sm text-pharma-slate-grey mt-1 flex flex-wrap gap-2">
-                            <span className="bg-pharma-ice-blue px-2 py-0.5 rounded-full text-xs">
-                              {language === 'el' ? '\u0394\u03bf\u03c3\u03bf\u03bb\u03bf\u03b3\u03af\u03b1' : 'Dosage'}:{' '}
-                              {request.dosage || (language === 'el' ? '\u0394\u03b5\u03bd \u03bf\u03c1\u03af\u03c3\u03c4\u03b7\u03ba\u03b5' : 'Not set')}
-                            </span>
-                            <span className="bg-pharma-ice-blue px-2 py-0.5 rounded-full text-xs">
-                              {language === 'el' ? '\u039c\u03bf\u03c1\u03c6\u03ae' : 'Form'}:{' '}
-                              {request.form ? (formLabelMap[request.form] || request.form) : (language === 'el' ? '\u0394\u03b5\u03bd \u03bf\u03c1\u03af\u03c3\u03c4\u03b7\u03ba\u03b5' : 'Not set')}
-                            </span>
-                            <span className="bg-pharma-ice-blue px-2 py-0.5 rounded-full text-xs">
-                              {language === 'el' ? '\u0395\u03c0\u03b5\u03af\u03b3\u03bf\u03bd' : 'Urgency'}:{' '}
-                              {request.urgency ? (urgencyLabelMap[request.urgency] || request.urgency) : (language === 'el' ? '\u0394\u03b5\u03bd \u03bf\u03c1\u03af\u03c3\u03c4\u03b7\u03ba\u03b5' : 'Not set')}
-                            </span>
+            <>
+              <div className="space-y-3">
+                {visibleRequests.map((request) => {
+                  const expired = isExpiredRequest(request);
+                  const statusKey = expired ? 'expired' : request.status;
+                  const statusConfig = getRequestStatusConfig(statusKey);
+                  const historyStatusLabel = getHistoryStatusLabel(request);
+                  const lastResponse = getLastResponse(request.patient_request_recipients);
+                  const summary = getRecipientSummary(request.patient_request_recipients);
+                  const remainingLabel = getRemainingLabel(request.expires_at);
+                  const canCancel = requestsTab === 'active' && !expired && request.status !== 'cancelled';
+                  const isHistory = requestsTab === 'history';
+                  return (
+                    <Card
+                      key={request.id}
+                      className="bg-white rounded-2xl shadow-card border-pharma-grey-pale"
+                      data-testid={`patient-request-${request.id}`}
+                    >
+                      <CardContent className="p-4 space-y-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <h3 className="font-heading font-semibold text-pharma-dark-slate truncate">
+                              {request.medicine_query}
+                            </h3>
+                            <div className="text-sm text-pharma-slate-grey mt-1 flex flex-wrap gap-2">
+                              <span className="bg-pharma-ice-blue px-2 py-0.5 rounded-full text-xs">
+                                {language === 'el' ? '\u0394\u03bf\u03c3\u03bf\u03bb\u03bf\u03b3\u03af\u03b1' : 'Dosage'}:{' '}
+                                {request.dosage || (language === 'el' ? '\u0394\u03b5\u03bd \u03bf\u03c1\u03af\u03c3\u03c4\u03b7\u03ba\u03b5' : 'Not set')}
+                              </span>
+                              <span className="bg-pharma-ice-blue px-2 py-0.5 rounded-full text-xs">
+                                {language === 'el' ? '\u039c\u03bf\u03c1\u03c6\u03ae' : 'Form'}:{' '}
+                                {request.form ? (formLabelMap[request.form] || request.form) : (language === 'el' ? '\u0394\u03b5\u03bd \u03bf\u03c1\u03af\u03c3\u03c4\u03b7\u03ba\u03b5' : 'Not set')}
+                              </span>
+                              <span className="bg-pharma-ice-blue px-2 py-0.5 rounded-full text-xs">
+                                {language === 'el' ? '\u0395\u03c0\u03b5\u03af\u03b3\u03bf\u03bd' : 'Urgency'}:{' '}
+                                {request.urgency ? (urgencyLabelMap[request.urgency] || request.urgency) : (language === 'el' ? '\u0394\u03b5\u03bd \u03bf\u03c1\u03af\u03c3\u03c4\u03b7\u03ba\u03b5' : 'Not set')}
+                              </span>
+                            </div>
                           </div>
+                          <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${isHistory ? 'bg-pharma-slate-grey/10 text-pharma-slate-grey border border-pharma-slate-grey/20' : statusConfig.className}`}>
+                            {isHistory ? historyStatusLabel : statusConfig.label}
+                          </span>
                         </div>
-                        <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${statusConfig.className}`}>
-                          {statusConfig.label}
-                        </span>
-                      </div>
-                      <div className="text-xs text-pharma-slate-grey space-y-1">
-                        <p>
-                          {t('requestCreatedAt')}: {formatDateTime(request.created_at)}
-                        </p>
-                        <p>
-                          {t('requestExpiresLabel')} {formatDateTime(request.expires_at)} - {remainingLabel}
-                        </p>
+                        <div className="text-xs text-pharma-slate-grey space-y-1">
+                          <p>{language === 'el' ? 'Δημιουργήθηκε' : 'Created'}: {formatDate(request.created_at)}</p>
+                          {isHistory ? (
+                            <>
+                              {request.cancelled_at && (
+                                <p>{language === 'el' ? 'Ακυρώθηκε' : 'Cancelled'}: {formatDate(request.cancelled_at)}</p>
+                              )}
+                              {request.expires_at && (
+                                <p>
+                                  {new Date(request.expires_at) <= Date.now()
+                                    ? `${language === 'el' ? 'Έληξε' : 'Expired'}: ${formatDate(request.expires_at)}`
+                                    : `${language === 'el' ? 'Λήγει' : 'Expires'}: ${formatDate(request.expires_at)}`}
+                                </p>
+                              )}
+                            </>
+                          ) : (
+                            <p>
+                              {t('requestExpiresLabel')} {formatDateTime(request.expires_at)} - {remainingLabel}
+                            </p>
+                          )}
                         <p>
                           {formatTemplate(t('requestRoutedToCount'), {
                             count: request.patient_request_recipients?.length || 0
@@ -977,13 +1080,25 @@ export default function PatientDashboard() {
                         )}
                       </div>
                       {canCancel && (
-                        <div>
+                        <div className="space-y-2">
+                          {/* Helper text for accepted requests */}
+                          {request.status === 'accepted' && (
+                            <p className={`text-xs ${remainingAcceptedCancels === 0 ? 'text-pharma-coral' : 'text-pharma-slate-grey'}`}>
+                              {remainingAcceptedCancels === 0
+                                ? language === 'el'
+                                  ? 'Όριο ακυρώσεων για αποδεκτά αιτήματα: 3/μήνα (έχεις 0 διαθέσιμες).'
+                                  : 'Cancel limit for accepted requests: 3/month (0 remaining).'
+                                : language === 'el'
+                                  ? `Απομένουν ${remainingAcceptedCancels} ακυρώσεις αυτόν τον μήνα για αποδεκτά αιτήματα.`
+                                  : `${remainingAcceptedCancels} cancellations remaining this month for accepted requests.`}
+                            </p>
+                          )}
                           <Button
                             variant="outline"
                             size="sm"
                             className="rounded-full"
-                            onClick={() => cancelPatientRequest(request.id)}
-                            disabled={cancelingId === request.id}
+                            onClick={() => cancelPatientRequest(request.id, request)}
+                            disabled={cancelingId === request.id || (request.status === 'accepted' && remainingAcceptedCancels === 0)}
                             data-testid={`cancel-request-${request.id}`}
                           >
                             {cancelingId === request.id
@@ -996,7 +1111,33 @@ export default function PatientDashboard() {
                   </Card>
                 );
               })}
-            </div>
+              </div>
+              {/* Show more/less buttons for History tab */}
+              {requestsTab === 'history' && historyRequests.length > 5 && (
+                <div className="flex justify-center gap-2 pt-2">
+                  {historyVisibleCount > 5 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="rounded-full"
+                      onClick={() => setHistoryVisibleCount(5)}
+                    >
+                      {language === 'el' ? 'Εμφάνιση λιγότερων' : 'Show less'}
+                    </Button>
+                  )}
+                  {historyRequests.length > historyVisibleCount && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="rounded-full"
+                      onClick={() => setHistoryVisibleCount(c => c + 5)}
+                    >
+                      {language === 'el' ? 'Εμφάνιση περισσότερων' : 'Show more'}
+                    </Button>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </section>
 

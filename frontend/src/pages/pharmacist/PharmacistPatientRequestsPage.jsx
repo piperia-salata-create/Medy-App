@@ -18,9 +18,16 @@ const STATUS_KEYS = {
   expired: 'expired'
 };
 
+const TXT = {
+  el: { cancelled: 'Ακυρώθηκε', rejected: 'Απορρίφθηκε', expired: 'Έληξε', completed: 'Ολοκληρώθηκε', created: 'Δημιουργήθηκε', cancelledAt: 'Ακυρώθηκε', expires: 'Λήγει', expiredAt: 'Έληξε' },
+  en: { cancelled: 'Cancelled', rejected: 'Rejected', expired: 'Expired', completed: 'Completed', created: 'Created', cancelledAt: 'Cancelled', expires: 'Expires', expiredAt: 'Expired' }
+};
+
 export default function PharmacistPatientRequestsPage() {
   const { user, profile, isPharmacist } = useAuth();
   const { language } = useLanguage();
+
+  const t = useCallback((key) => (TXT[language] || TXT.en)[key], [language]);
   const navigate = useNavigate();
 
   const [pharmacy, setPharmacy] = useState(null);
@@ -132,7 +139,7 @@ export default function PharmacistPatientRequestsPage() {
     } finally {
       setLoading(false);
     }
-  }, [language]);
+  }, [language, t]);
 
   useEffect(() => {
     const load = async () => {
@@ -200,6 +207,45 @@ export default function PharmacistPatientRequestsPage() {
       label: language === 'el' ? '\u03a3\u03b5 \u03b1\u03bd\u03b1\u03bc\u03bf\u03bd\u03ae' : 'Pending',
       className: 'bg-pharma-steel-blue/10 text-pharma-steel-blue border border-pharma-steel-blue/20'
     };
+  }, [language]);
+
+  // Helper for Cancelled/Expired tab badge
+  const getHistoryStatusInfo = useCallback((item) => {
+    const request = item?.request ?? item?.patient_requests ?? item?.patient_request ?? null;
+    const requestStatus = request?.status;
+    const recipientStatus = item?.status;
+    const now = Date.now();
+
+    // Priority: cancelled > rejected > expired
+    if (requestStatus === 'cancelled' || recipientStatus === 'cancelled') {
+      return {
+        label: t('cancelled'),
+        className: 'bg-pharma-slate-grey/10 text-pharma-slate-grey border border-pharma-slate-grey/20'
+      };
+    }
+    if (requestStatus === 'rejected' || recipientStatus === 'rejected' || recipientStatus === 'declined') {
+      return {
+        label: t('rejected'),
+        className: 'bg-pharma-coral/10 text-pharma-coral border border-pharma-coral/20'
+      };
+    }
+    if (request?.expires_at && new Date(request.expires_at).getTime() <= now) {
+      return {
+        label: t('expired'),
+        className: 'bg-pharma-slate-grey/10 text-pharma-slate-grey border border-pharma-slate-grey/20'
+      };
+    }
+    // Fallback
+    return {
+      label: t('completed'),
+      className: 'bg-pharma-slate-grey/10 text-pharma-slate-grey border border-pharma-slate-grey/20'
+    };
+  }, [language, t]);
+
+  // Date formatter for history timestamps
+  const formatDate = useCallback((value) => {
+    if (!value) return '';
+    return new Date(value).toLocaleString(language === 'el' ? 'el-GR' : 'en-US');
   }, [language]);
 
   const filteredRequests = useMemo(() => {
@@ -367,7 +413,9 @@ export default function PharmacistPatientRequestsPage() {
                 {filteredRequests.map((item) => {
                   const request = item?.request || {};
                   const statusInfo = item.statusInfo || getStatusInfo(item);
+                  const historyStatusInfo = getHistoryStatusInfo(item);
                   const canRespond = statusInfo.key === STATUS_KEYS.pending;
+                  const isCancelledExpired = activeTab === 'cancelled-expired';
                   return (
                     <Card key={item.id} className="bg-white rounded-2xl border border-pharma-grey-pale">
                       <CardContent className="p-4 space-y-3">
@@ -377,17 +425,37 @@ export default function PharmacistPatientRequestsPage() {
                               {request?.medicine_query || (language === 'el' ? '\u0391\u03af\u03c4\u03b7\u03bc\u03b1' : 'Request')}
                             </p>
                             <div className="text-xs text-pharma-slate-grey mt-1 space-y-1">
-                              <p>
-                                {language === 'el' ? '\u0394\u03b7\u03bc\u03b9\u03bf\u03c5\u03c1\u03b3\u03ae\u03b8\u03b7\u03ba\u03b5' : 'Created'}: {formatDateTime(request?.created_at)}
-                              </p>
-                              <p className="flex items-center gap-1.5">
-                                <Clock className="w-3.5 h-3.5" />
-                                {language === 'el' ? '\u039b\u03ae\u03b3\u03b5\u03b9' : 'Expires'}: {formatDateTime(request?.expires_at)} · {getRemainingLabel(request?.expires_at)}
-                              </p>
+                              {isCancelledExpired ? (
+                                // Cancelled/Expired tab timestamps
+                                <>
+                                  <p>{t('created')}: {formatDate(request?.created_at)}</p>
+                                  {request?.cancelled_at && (
+                                    <p>{t('cancelledAt')}: {formatDate(request?.cancelled_at)}</p>
+                                  )}
+                                  {request?.expires_at && (
+                                    <p>
+                                      {new Date(request.expires_at) <= Date.now()
+                                        ? `${t('expiredAt')}: ${formatDate(request.expires_at)}`
+                                        : `${t('expires')}: ${formatDate(request.expires_at)}`}
+                                    </p>
+                                  )}
+                                </>
+                              ) : (
+                                // Active tabs timestamps
+                                <>
+                                  <p>
+                                    {language === 'el' ? '\u0394\u03b7\u03bc\u03b9\u03bf\u03c5\u03c1\u03b3\u03ae\u03b8\u03b7\u03ba\u03b5' : 'Created'}: {formatDateTime(request?.created_at)}
+                                  </p>
+                                  <p className="flex items-center gap-1.5">
+                                    <Clock className="w-3.5 h-3.5" />
+                                    {language === 'el' ? '\u039b\u03ae\u03b3\u03b5\u03b9' : 'Expires'}: {formatDateTime(request?.expires_at)} · {getRemainingLabel(request?.expires_at)}
+                                  </p>
+                                </>
+                              )}
                             </div>
                           </div>
-                          <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${statusInfo.className}`}>
-                            {statusInfo.label}
+                          <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${isCancelledExpired ? historyStatusInfo.className : statusInfo.className}`}>
+                            {isCancelledExpired ? historyStatusInfo.label : statusInfo.label}
                           </span>
                         </div>
 

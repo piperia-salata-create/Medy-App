@@ -195,9 +195,32 @@ export default function PharmacistDashboard() {
       }
       const now = Date.now();
       const filtered = (data || []).filter((recipient) => {
-        const expiresAt = recipient.request?.expires_at;
-        if (!expiresAt) return true;
-        return new Date(expiresAt).getTime() >= now;
+        // Guard: exclude if request is null
+        const req = recipient.request ?? recipient.patient_requests ?? null;
+        if (!req) {
+          if (process.env.NODE_ENV === 'development') {
+            console.warn('[PharmacistDashboard] Excluding row with null request:', recipient.id);
+          }
+          return false;
+        }
+
+        const requestStatus = req.status;
+        const recipientStatus = recipient.status;
+        const expiresAt = req.expires_at;
+
+        // isCancelled: check request.status OR recipient.status
+        const isCancelled = requestStatus === 'cancelled' || recipientStatus === 'cancelled';
+        if (isCancelled) return false;
+
+        // isExpired: check expires_at
+        const isExpired = expiresAt && new Date(expiresAt).getTime() <= now;
+        if (isExpired) return false;
+
+        // isActiveIncoming: must be pending or accepted at request level
+        const isActiveIncoming = requestStatus === 'pending' || requestStatus === 'accepted';
+        if (!isActiveIncoming) return false;
+
+        return true;
       });
       setIncomingRequests(filtered);
     } catch (error) {
@@ -866,7 +889,15 @@ export default function PharmacistDashboard() {
                   />
                 ) : (
                   <div className="space-y-3">
-                    {incomingRequests.map((req) => (
+                    {incomingRequests.map((req) => {
+                      // Render-time guard
+                      if (!req.request) {
+                        if (process.env.NODE_ENV === 'development') {
+                          console.warn('[PharmacistDashboard] Skipping render of row with null request:', req.id);
+                        }
+                        return null;
+                      }
+                      return (
                       <div key={req.id} className="p-4 rounded-xl border border-pharma-grey-pale bg-pharma-ice-blue/40">
                         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                           <div className="min-w-0">
@@ -912,7 +943,8 @@ export default function PharmacistDashboard() {
                           </div>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
                 {pharmacy ? (
