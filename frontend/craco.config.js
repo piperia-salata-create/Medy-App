@@ -65,6 +65,12 @@ const webpackConfig = {
       if (config.enableHealthCheck && healthPluginInstance) {
         webpackConfig.plugins.push(healthPluginInstance);
       }
+
+      // Externalize Leaflet to reduce bundle size.
+      webpackConfig.externals = {
+        ...(webpackConfig.externals || {}),
+        leaflet: 'L',
+      };
       return webpackConfig;
     },
   },

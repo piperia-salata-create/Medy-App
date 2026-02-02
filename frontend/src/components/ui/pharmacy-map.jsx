@@ -1,8 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { calculateDistance, formatDistance } from '../../lib/geoUtils';
 import { Button } from './button';
 import { StatusBadge, OnCallBadge } from './status-badge';
 import { Phone, Navigation, MapPin, Pill } from 'lucide-react';
@@ -70,27 +70,6 @@ const MapCenterController = ({ center }) => {
   }, [center, map]);
   
   return null;
-};
-
-// Calculate distance between two points (Haversine formula)
-export const calculateDistance = (lat1, lon1, lat2, lon2) => {
-  const R = 6371; // Earth's radius in km
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = 
-    Math.sin(dLat/2) * Math.sin(dLat/2) +
-    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
-    Math.sin(dLon/2) * Math.sin(dLon/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  return R * c;
-};
-
-// Format distance for display
-export const formatDistance = (km) => {
-  if (km < 1) {
-    return `${Math.round(km * 1000)} m`;
-  }
-  return `${km.toFixed(1)} km`;
 };
 
 export const PharmacyMap = ({ 
@@ -229,42 +208,6 @@ export const PharmacyMap = ({
       </MapContainer>
     </div>
   );
-};
-
-// Hook for getting user's geolocation
-export const useGeolocation = () => {
-  const [location, setLocation] = useState(null);
-  const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(false);
-
-  const getLocation = () => {
-    if (!navigator.geolocation) {
-      setError('Geolocation not supported');
-      return;
-    }
-
-    setLoading(true);
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setLocation({
-          lat: position.coords.latitude,
-          lng: position.coords.longitude
-        });
-        setLoading(false);
-      },
-      (err) => {
-        setError(err.message);
-        setLoading(false);
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 300000 // Cache for 5 minutes
-      }
-    );
-  };
-
-  return { location, error, loading, getLocation };
 };
 
 export default PharmacyMap;

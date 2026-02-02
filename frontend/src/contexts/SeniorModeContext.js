@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase, getCurrentUser } from '../lib/supabase';
 
+const isDev = process.env.NODE_ENV !== 'production';
+
 const SeniorModeContext = createContext();
 
 export const useSeniorMode = () => {
@@ -36,7 +38,7 @@ export const SeniorModeProvider = ({ children }) => {
         if (error) throw error;
       }
     } catch (error) {
-      if (process.env.NODE_ENV === 'development') {
+      if (isDev) {
         console.log('[senior-mode] update failed, reverting', error);
       }
       setSeniorModeLocal(previous);
@@ -61,7 +63,7 @@ export const SeniorModeProvider = ({ children }) => {
           if (typeof data?.senior_mode === 'boolean') {
             setSeniorModeState((prev) => {
               if (prev === data.senior_mode) return prev;
-              if (process.env.NODE_ENV === 'development') {
+              if (isDev) {
                 console.log('[senior-mode] sync from profile', { from: prev, to: data.senior_mode });
               }
               localStorage.setItem('pharma-alert-senior-mode', data.senior_mode.toString());
@@ -76,7 +78,7 @@ export const SeniorModeProvider = ({ children }) => {
 
     loadSeniorModeFromProfile();
 
-    if (process.env.NODE_ENV === 'development') {
+    if (isDev) {
       console.log('[senior-mode] initial load');
     }
   }, []);

@@ -22,6 +22,8 @@ import {
   Check
 } from 'lucide-react';
 
+const isDev = process.env.NODE_ENV !== 'production';
+
 export default function RemindersPage() {
   const { user, session, loading: authLoading } = useAuth();
   const { t, language } = useLanguage();
@@ -63,7 +65,9 @@ export default function RemindersPage() {
   }, [user]);
 
   useEffect(() => {
-    console.log('RemindersPage init', { user, session, authLoading });
+    if (isDev) {
+      console.log('RemindersPage init', { user, session, authLoading });
+    }
     if (authLoading) return;
     fetchReminders();
   }, [authLoading, fetchReminders, user, session]);

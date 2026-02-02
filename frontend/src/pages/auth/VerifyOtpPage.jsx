@@ -10,6 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { toast } from 'sonner';
 import { ArrowLeft, Globe } from 'lucide-react';
 
+const isDev = process.env.NODE_ENV !== 'production';
+
 export default function VerifyOtpPage() {
   const { t, language, setLanguage } = useLanguage();
   const navigate = useNavigate();
@@ -89,7 +91,9 @@ export default function VerifyOtpPage() {
         email: session.user.email
       };
 
-      console.log('Creating profile with role:', validRole, profileData);
+      if (isDev) {
+        console.log('Creating profile with role:', validRole, profileData);
+      }
 
       // Upsert profile - this is the ONLY place profile gets created after OTP
       const { data: profileRow, error: profileError } = await supabase
@@ -104,7 +108,9 @@ export default function VerifyOtpPage() {
         return;
       }
 
-      console.log('Profile created/updated:', profileRow);
+      if (isDev) {
+        console.log('Profile created/updated:', profileRow);
+      }
       sessionStorage.removeItem('pendingProfile');
 
       // CRITICAL: Route based on the SAVED profile role (source of truth)

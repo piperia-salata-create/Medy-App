@@ -19,6 +19,8 @@ import {
   Navigation
 } from 'lucide-react';
 
+const isDev = process.env.NODE_ENV !== 'production';
+
 export default function FavoritesPage() {
   const { user, session, loading: authLoading } = useAuth();
   const { t, language } = useLanguage();
@@ -82,7 +84,9 @@ export default function FavoritesPage() {
   };
 
   useEffect(() => {
-    console.log('FavoritesPage init', { user, session, authLoading });
+    if (isDev) {
+      console.log('FavoritesPage init', { user, session, authLoading });
+    }
     if (authLoading) return;
     fetchFavorites();
   }, [authLoading, fetchFavorites, user, session]);

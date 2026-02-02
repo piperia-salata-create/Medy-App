@@ -21,6 +21,8 @@ import {
   ExternalLink
 } from 'lucide-react';
 
+const isDev = process.env.NODE_ENV !== 'production';
+
 export default function PharmacyDetailPage() {
   const { id } = useParams();
   const { user, session, loading: authLoading } = useAuth();
@@ -34,7 +36,9 @@ export default function PharmacyDetailPage() {
 
   // Fetch pharmacy details
   useEffect(() => {
-    console.log('PharmacyDetailPage init', { user, session, authLoading });
+    if (isDev) {
+      console.log('PharmacyDetailPage init', { user, session, authLoading });
+    }
     if (authLoading) return;
     const fetchPharmacy = async () => {
       setLoading(true);

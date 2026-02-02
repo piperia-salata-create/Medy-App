@@ -10,6 +10,8 @@ import { EmptyState } from '../../components/ui/empty-states';
 import { ArrowLeft, Inbox, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 
+const isDev = process.env.NODE_ENV !== 'production';
+
 const STATUS_KEYS = {
   pending: 'pending',
   accepted: 'accepted',
@@ -95,14 +97,15 @@ export default function PharmacistPatientRequestsPage() {
             urgency,
             status,
             expires_at,
-            created_at
+            created_at,
+            selected_pharmacy_id
           )
         `)
         .eq('pharmacy_id', pharmacyData.id)
         .order('updated_at', { ascending: false });
 
       if (error) throw error;
-      if (data && data.length > 0) {
+      if (isDev && data && data.length > 0) {
         const sample = data[0];
         const requestId = sample?.request_id;
         const requestIsNull = sample?.request == null;
@@ -120,7 +123,7 @@ export default function PharmacistPatientRequestsPage() {
           });
         }
       }
-      if (process.env.NODE_ENV === 'development' && data && data.length > 0) {
+      if (isDev && data && data.length > 0) {
         const sample = data[0];
         console.log('[PharmacistPatientRequests] sample keys', Object.keys(sample));
         console.log('[PharmacistPatientRequests] join field shape', {
@@ -130,7 +133,11 @@ export default function PharmacistPatientRequestsPage() {
         });
         console.log('[PharmacistPatientRequests] sample row', sample);
       }
-      setRequests(data || []);
+      const filtered = (data || []).filter((item) => {
+        const selectedId = item?.request?.selected_pharmacy_id ?? null;
+        return !selectedId || selectedId === pharmacyData.id;
+      });
+      setRequests(filtered);
     } catch (error) {
       console.error('Error fetching patient requests:', error);
       toast.error(language === 'el'
@@ -139,7 +146,7 @@ export default function PharmacistPatientRequestsPage() {
     } finally {
       setLoading(false);
     }
-  }, [language, t]);
+  }, [language]);
 
   useEffect(() => {
     const load = async () => {
@@ -240,7 +247,7 @@ export default function PharmacistPatientRequestsPage() {
       label: t('completed'),
       className: 'bg-pharma-slate-grey/10 text-pharma-slate-grey border border-pharma-slate-grey/20'
     };
-  }, [language, t]);
+  }, [t]);
 
   // Date formatter for history timestamps
   const formatDate = useCallback((value) => {
@@ -416,6 +423,8 @@ export default function PharmacistPatientRequestsPage() {
                   const historyStatusInfo = getHistoryStatusInfo(item);
                   const canRespond = statusInfo.key === STATUS_KEYS.pending;
                   const isCancelledExpired = activeTab === 'cancelled-expired';
+                  const selectedByPatient = request?.selected_pharmacy_id
+                    && request.selected_pharmacy_id === pharmacy?.id;
                   return (
                     <Card key={item.id} className="bg-white rounded-2xl border border-pharma-grey-pale">
                       <CardContent className="p-4 space-y-3">
@@ -454,9 +463,16 @@ export default function PharmacistPatientRequestsPage() {
                               )}
                             </div>
                           </div>
-                          <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${isCancelledExpired ? historyStatusInfo.className : statusInfo.className}`}>
-                            {isCancelledExpired ? historyStatusInfo.label : statusInfo.label}
-                          </span>
+                          <div className="flex flex-wrap items-center justify-end gap-2">
+                            {selectedByPatient && (
+                              <span className="text-xs px-2 py-1 rounded-full whitespace-nowrap bg-pharma-teal/10 text-pharma-teal border border-pharma-teal/20">
+                                {language === 'el' ? '\u0395\u03c0\u03b9\u03bb\u03ad\u03c7\u03b8\u03b7\u03ba\u03b5 \u03b1\u03c0\u03cc \u03b1\u03c3\u03b8\u03b5\u03bd\u03ae' : 'Selected by patient'}
+                              </span>
+                            )}
+                            <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${isCancelledExpired ? historyStatusInfo.className : statusInfo.className}`}>
+                              {isCancelledExpired ? historyStatusInfo.label : statusInfo.label}
+                            </span>
+                          </div>
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
