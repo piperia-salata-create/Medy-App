@@ -38,6 +38,7 @@ export default function PharmacistPatientRequestsPage() {
   const [activeTab, setActiveTab] = useState('pending');
   const [respondingId, setRespondingId] = useState(null);
   const [nowTick, setNowTick] = useState(Date.now());
+  const [patientDetailsByRequest, setPatientDetailsByRequest] = useState({});
 
   useEffect(() => {
     if (profile && !isPharmacist()) {
@@ -148,6 +149,31 @@ export default function PharmacistPatientRequestsPage() {
     }
   }, [language]);
 
+  const fetchPatientDetails = useCallback(async (requestId, pharmacyId) => {
+    if (!requestId || !pharmacyId) return;
+    try {
+      const { data, error } = await supabase.rpc('get_patient_details_for_request', {
+        p_request_id: requestId,
+        p_pharmacy_id: pharmacyId
+      });
+
+      if (error) {
+        console.error('Error loading patient details:', error);
+        return;
+      }
+
+      const row = Array.isArray(data) ? data[0] : data;
+      if (!row) return;
+
+      setPatientDetailsByRequest((prev) => ({
+        ...prev,
+        [requestId]: row
+      }));
+    } catch (err) {
+      console.error('Error loading patient details:', err);
+    }
+  }, []);
+
   useEffect(() => {
     const load = async () => {
       const pharmacyData = await fetchPharmacy();
@@ -157,6 +183,21 @@ export default function PharmacistPatientRequestsPage() {
       load();
     }
   }, [user, fetchPharmacy, fetchRequests]);
+
+  useEffect(() => {
+    if (!pharmacy?.id) return;
+    const eligible = (requests || []).filter((item) => {
+      const request = item?.request || {};
+      return item?.status === 'accepted' && request?.selected_pharmacy_id === pharmacy.id;
+    });
+
+    eligible.forEach((item) => {
+      const requestId = item?.request?.id;
+      if (!requestId) return;
+      if (patientDetailsByRequest[requestId]) return;
+      fetchPatientDetails(requestId, pharmacy.id);
+    });
+  }, [requests, pharmacy, fetchPatientDetails, patientDetailsByRequest]);
 
   useEffect(() => {
     if (!pharmacy?.id) return;
@@ -425,6 +466,25 @@ export default function PharmacistPatientRequestsPage() {
                   const isCancelledExpired = activeTab === 'cancelled-expired';
                   const selectedByPatient = request?.selected_pharmacy_id
                     && request.selected_pharmacy_id === pharmacy?.id;
+                  const canViewPatientDetails = item?.status === 'accepted'
+                    && request?.selected_pharmacy_id === pharmacy?.id;
+                  const patientDetails = canViewPatientDetails
+                    ? patientDetailsByRequest[request?.id]
+                    : null;
+                  const patientName = patientDetails?.patient_full_name
+                    || patientDetails?.full_name
+                    || '-';
+                  const patientPhone = patientDetails?.patient_phone
+                    || patientDetails?.phone
+                    || '';
+                  const patientAddress = patientDetails?.patient_address_text
+                    || patientDetails?.patient_address
+                    || patientDetails?.address_text
+                    || patientDetails?.address
+                    || '';
+                  const patientLat = patientDetails?.patient_latitude ?? patientDetails?.latitude ?? null;
+                  const patientLng = patientDetails?.patient_longitude ?? patientDetails?.longitude ?? null;
+                  const patientNotes = patientDetails?.request_notes || '';
                   return (
                     <Card key={item.id} className="bg-white rounded-2xl border border-pharma-grey-pale">
                       <CardContent className="p-4 space-y-3">
@@ -500,6 +560,46 @@ export default function PharmacistPatientRequestsPage() {
                               {request?.urgency || (language === 'el' ? '\u0394\u03b5\u03bd \u03bf\u03c1\u03af\u03c3\u03c4\u03b7\u03ba\u03b5' : 'Not set')}
                             </p>
                           </div>
+                        </div>
+
+                        <div className="rounded-xl border border-pharma-grey-pale/60 bg-white px-3 py-2">
+                          <p className="text-[11px] uppercase tracking-wide text-pharma-slate-grey">
+                            {language === 'el' ? '\u03a3\u03c4\u03bf\u03b9\u03c7\u03b5\u03af\u03b1 \u03b1\u03c3\u03b8\u03b5\u03bd\u03ae' : 'Patient details'}
+                          </p>
+                          {canViewPatientDetails ? (
+                            <div className="mt-1 space-y-1 text-sm text-pharma-charcoal">
+                              <p className="font-medium">{patientName}</p>
+                              {patientPhone && (
+                                <p className="text-sm text-pharma-slate-grey">
+                                  {patientPhone}
+                                </p>
+                              )}
+                              {patientAddress ? (
+                                <p className="text-sm text-pharma-slate-grey">
+                                  {patientAddress}
+                                </p>
+                              ) : (patientLat != null && patientLng != null) ? (
+                                <p className="text-sm text-pharma-slate-grey">
+                                  {`${Number(patientLat).toFixed(5)}, ${Number(patientLng).toFixed(5)}`}
+                                </p>
+                              ) : (
+                                <p className="text-sm text-pharma-slate-grey">
+                                  {language === 'el' ? '\u0394\u03b5\u03bd \u03bf\u03c1\u03af\u03c3\u03c4\u03b7\u03ba\u03b5' : 'Not set'}
+                                </p>
+                              )}
+                              {patientNotes && (
+                                <p className="text-xs text-pharma-slate-grey">
+                                  {patientNotes}
+                                </p>
+                              )}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-pharma-slate-grey mt-1">
+                              {language === 'el'
+                                ? '\u03a4\u03b1 \u03c3\u03c4\u03bf\u03b9\u03c7\u03b5\u03af\u03b1 \u03b5\u03bc\u03c6\u03b1\u03bd\u03af\u03b6\u03bf\u03bd\u03c4\u03b1\u03b9 \u03bc\u03cc\u03bd\u03bf \u03cc\u03c4\u03b1\u03bd \u03bf \u03b1\u03c3\u03b8\u03b5\u03bd\u03ae\u03c2 \u03b5\u03c0\u03b9\u03bb\u03ad\u03be\u03b5\u03b9 \u03c4\u03bf \u03c6\u03b1\u03c1\u03bc\u03b1\u03ba\u03b5\u03af\u03bf \u03c3\u03b1\u03c2.'
+                                : 'Details are shown only when the patient selects your pharmacy.'}
+                            </p>
+                          )}
                         </div>
 
                         {canRespond && (

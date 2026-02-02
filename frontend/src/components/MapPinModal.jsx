@@ -57,6 +57,7 @@ const MapPinModal = ({
   onOpenChange,
   initialPosition,
   onConfirm,
+  onPositionChange,
   title = 'Select location',
   confirmLabel = 'Confirm'
 }) => {
@@ -67,6 +68,12 @@ const MapPinModal = ({
     if (!open) return;
     setPosition(normalizedInitial || DEFAULT_CENTER);
   }, [open, normalizedInitial]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!position) return;
+    onPositionChange?.({ lat: position[0], lng: position[1] });
+  }, [position, onPositionChange, open]);
 
   const handleConfirm = () => {
     if (!position) return;

@@ -1,3 +1,5 @@
+import { supabase } from '../supabase';
+
 const BASE_URL = 'https://nominatim.openstreetmap.org';
 const COMMON_PARAMS = {
   format: 'json',
@@ -57,11 +59,19 @@ export const reverseGeocode = async (lat, lon) => {
     throw new Error('Latitude and longitude are required');
   }
 
-  const url = buildUrl('/reverse', {
-    ...COMMON_PARAMS,
-    lat: `${lat}`,
-    lon: `${lon}`
+  const cacheKey = `${lat},${lon}`;
+  if (reverseCache.has(cacheKey)) {
+    return reverseCache.get(cacheKey);
+  }
+
+  const { data, error } = await supabase.functions.invoke('reverse-geocode', {
+    body: { lat, lon }
   });
 
-  return fetchJsonWithCache(url, reverseCache);
+  if (error) {
+    throw error;
+  }
+
+  reverseCache.set(cacheKey, data);
+  return data;
 };

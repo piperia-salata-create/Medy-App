@@ -170,9 +170,14 @@ const PatientRequestsListLazy = ({
     const lastResponse = getLastResponse(request.patient_request_recipients);
     const summary = getRecipientSummary(request.patient_request_recipients);
     const acceptedRecipients = (request.patient_request_recipients || [])
-      .filter((recipient) => recipient.status === 'accepted');
+      .filter((recipient) => recipient.request_id === request.id && recipient.status === 'accepted');
     const remainingLabel = getRemainingLabel(request.expires_at);
     const canCancel = !isHistory && !expired && request.status !== 'cancelled';
+    const canChoosePharmacy = ['pending', 'accepted'].includes(request.status)
+      && !request.selected_pharmacy_id;
+    const selectedRecipient = request.selected_pharmacy_id
+      ? acceptedRecipients.find((recipient) => recipient.pharmacy_id === request.selected_pharmacy_id)
+      : null;
 
     return (
       <Card
@@ -245,7 +250,18 @@ const PatientRequestsListLazy = ({
                 {lastResponse.pharmacies?.name || t('pharmacy')} - {getRequestStatusConfig(lastResponse.status === 'rejected' ? 'declined' : lastResponse.status).label}
               </p>
             )}
-            {acceptedRecipients.length > 0 && (
+            {!isHistory && request.selected_pharmacy_id && selectedRecipient && (
+              <div className="mt-2">
+                <p className="text-xs font-medium text-pharma-charcoal">
+                  {language === 'el' ? 'Επιλεγμένο φαρμακείο' : 'Selected pharmacy'}
+                </p>
+                <p className="text-sm text-pharma-slate-grey flex items-center gap-2 mt-1">
+                  <MapPin className="w-3.5 h-3.5 text-pharma-teal" />
+                  {selectedRecipient.pharmacies?.name || t('pharmacy')}
+                </p>
+              </div>
+            )}
+            {canChoosePharmacy && acceptedRecipients.length > 0 && (
               <div className="mt-2 space-y-2">
                 <p className="text-xs font-medium text-pharma-charcoal">
                   {language === 'el' ? 'Φαρμακεία που αποδέχτηκαν' : 'Pharmacies that accepted'}

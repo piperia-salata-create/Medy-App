@@ -25,6 +25,7 @@ import {
   Clock,
   Inbox,
   XCircle,
+  CheckCircle2,
   Send,
   ArrowRight,
   Package,
@@ -61,6 +62,7 @@ export default function PharmacistDashboardLazy() {
   const [incomingRequests, setIncomingRequests] = useState([]);
   const [incomingLoading, setIncomingLoading] = useState(false);
   const [deferMount, setDeferMount] = useState(false);
+  const [showAddressText, setShowAddressText] = useState(false);
   const [lightStageReady, setLightStageReady] = useState(false);
   const canLoadLight = isProfileReady && lightStageReady;
   const canLoadData = isProfileReady && deferMount && lightStageReady;
@@ -84,6 +86,16 @@ export default function PharmacistDashboardLazy() {
         cancelIdleCallback(id);
       }
     };
+  }, []);
+
+  useEffect(() => {
+    let id;
+    if (typeof requestAnimationFrame === 'function') {
+      id = requestAnimationFrame(() => setShowAddressText(true));
+      return () => cancelAnimationFrame(id);
+    }
+    id = setTimeout(() => setShowAddressText(true), 0);
+    return () => clearTimeout(id);
   }, []);
 
   useEffect(() => {
@@ -228,6 +240,7 @@ export default function PharmacistDashboardLazy() {
         .eq('pharmacy_id', pharmacy.id)
         .eq('status', 'pending')
         .gt('patient_requests.expires_at', nowIso)
+        .or(`selected_pharmacy_id.is.null,selected_pharmacy_id.eq.${pharmacy.id}`, { foreignTable: 'patient_requests' })
         .order('updated_at', { ascending: false });
 
       if (error) throw error;
@@ -748,10 +761,18 @@ export default function PharmacistDashboardLazy() {
                       </div>
                     </div>
                     {pharmacy.address && (
-                      <p className="text-sm text-pharma-slate-grey flex items-center gap-2">
-                        <MapPin className="w-4 h-4 flex-shrink-0" />
-                        {pharmacy.address}
-                      </p>
+                      // This block was LCP; we will defer it.
+                      showAddressText ? (
+                        <p className="text-sm text-pharma-slate-grey flex items-center gap-2">
+                          <MapPin className="w-4 h-4 flex-shrink-0" />
+                          {pharmacy.address}
+                        </p>
+                      ) : (
+                        <div className="flex items-center gap-2 min-h-[20px]">
+                          <MapPin className="w-4 h-4 flex-shrink-0 text-pharma-slate-grey/60" />
+                          <div className="h-4 w-56 rounded-full bg-pharma-grey-pale/70 animate-pulse" />
+                        </div>
+                      )
                     )}
                     {pharmacy.phone && (
                       <p className="text-sm text-pharma-slate-grey flex items-center gap-2">

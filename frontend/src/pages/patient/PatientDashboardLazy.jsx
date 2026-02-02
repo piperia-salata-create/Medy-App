@@ -416,7 +416,6 @@ export default function PatientDashboardLazy() {
       setRequestUrgency('normal');
       setRequestDuration('1h');
       await fetchMyRequests();
-      setRequestsTab('active');
 
       const section = document.getElementById('my-requests-section');
       if (section) {
@@ -469,10 +468,15 @@ export default function PatientDashboardLazy() {
     const actionId = `${requestId}:${pharmacyId}`;
     setChoosingPharmacyId(actionId);
     try {
-      const { error } = await supabase.rpc('choose_pharmacy_for_request', {
-        p_request_id: requestId,
-        p_pharmacy_id: pharmacyId
-      });
+      const { error } = await supabase
+        .from('patient_requests')
+        .update({
+          selected_pharmacy_id: pharmacyId,
+          selected_at: new Date().toISOString()
+        })
+        .eq('id', requestId)
+        .select('*')
+        .single();
 
       if (error) {
         console.error('Error choosing pharmacy:', error);
@@ -1091,14 +1095,16 @@ export default function PatientDashboardLazy() {
                             <Pill className="w-6 h-6 text-pharma-teal" />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-start justify-between gap-2">
-                              <div>
-                                <h3 className="font-heading font-semibold text-pharma-dark-slate">
+                            <div className="flex items-start justify-between gap-2 min-w-0">
+                              <div className="min-w-0">
+                                <h3 className="font-heading font-semibold text-pharma-dark-slate truncate">
                                   {pharmacy.name}
                                 </h3>
-                                <div className="flex items-center gap-1.5 text-xs text-pharma-slate-grey mt-0.5">
-                                  <MapPin className="w-3.5 h-3.5" />
-                                  <span className="truncate">{pharmacy.address}</span>
+                                <div className="flex items-start gap-1.5 text-xs text-pharma-slate-grey mt-0.5 min-w-0">
+                                  <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
+                                  <span className="line-clamp-2 break-words overflow-hidden">
+                                    {pharmacy.address}
+                                  </span>
                                 </div>
                               </div>
                               <button
