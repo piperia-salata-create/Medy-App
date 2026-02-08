@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -187,6 +187,7 @@ export default function InventoryPage() {
   const { user, profile, isPharmacist, profileStatus } = useAuth();
   const { language } = useLanguage();
   const navigate = useNavigate();
+  const csvInputRef = useRef(null);
 
   const [pharmacy, setPharmacy] = useState(null);
   const [loadingPharmacy, setLoadingPharmacy] = useState(true);
@@ -526,9 +527,16 @@ export default function InventoryPage() {
     } catch (error) {
       console.error('CSV parse failed:', error);
       setPreviewRows([]);
-      setPreviewNotice(language === 'el' ? 'Αποτυχία ανάγνωσης CSV.' : 'Failed to read CSV.');
+      setPreviewNotice(language === 'el' ? '\u0391\u03c0\u03bf\u03c4\u03c5\u03c7\u03af\u03b1 \u03b1\u03bd\u03ac\u03b3\u03bd\u03c9\u03c3\u03b7\u03c2 CSV.' : 'Failed to read CSV.');
+    } finally {
+      // Allow picking the same file again and still trigger onChange.
+      event.target.value = '';
     }
   };
+
+  const openCsvPicker = useCallback(() => {
+    csvInputRef.current?.click();
+  }, []);
 
   const buildPastePreview = () => {
     const lines = pasteText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
@@ -716,8 +724,24 @@ export default function InventoryPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    <Input type="file" accept=".csv,text/csv" onChange={handleCsvFileChange} data-testid="inventory-csv-input" />
-                    {csvFileName && <p className="text-sm text-pharma-slate-grey">{language === 'el' ? 'Αρχείο:' : 'File:'} {csvFileName}</p>}
+                    <input
+                      ref={csvInputRef}
+                      id="inventory-csv-input"
+                      type="file"
+                      accept=".csv,text/csv"
+                      onChange={handleCsvFileChange}
+                      className="sr-only"
+                      data-testid="inventory-csv-input"
+                    />
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Button type="button" variant="outline" className="rounded-full gap-2" onClick={openCsvPicker}>
+                        <Upload className="w-4 h-4" />
+                        {language === 'el' ? '\u0395\u03c0\u03b9\u03bb\u03bf\u03b3\u03ae CSV \u03b1\u03c1\u03c7\u03b5\u03af\u03bf\u03c5' : 'Choose CSV file'}
+                      </Button>
+                      <p className="text-sm text-pharma-slate-grey">
+                        {csvFileName || (language === 'el' ? '\u0394\u03b5\u03bd \u03b5\u03c0\u03b9\u03bb\u03ad\u03c7\u03b8\u03b7\u03ba\u03b5 \u03b1\u03c1\u03c7\u03b5\u03af\u03bf.' : 'No file selected.')}
+                      </p>
+                    </div>
                     <p className="text-xs text-pharma-slate-grey">
                       {language === 'el'
                         ? 'Κεφαλίδες: category,name_el,name_en,desc_el,desc_en,barcode,brand,strength,form,price,notes'
