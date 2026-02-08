@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { supabase } from '../../lib/supabase';
+import { geocodeAddress } from '../../lib/geocoding/googleGeocoding';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
@@ -244,29 +245,22 @@ export default function PharmacyCreatePage() {
     });
   };
 
-  const geocodeAddress = async (address) => {
+  const resolveAddressCoordinates = async (address) => {
     const trimmed = address.trim();
     if (!trimmed) return { latitude: null, longitude: null, status: 'empty' };
-    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(trimmed)}&limit=1`;
 
     try {
-      const response = await fetch(url, {
-        headers: {
-          'Accept': 'application/json',
-          'User-Agent': 'Pharma-Alert/1.0'
-        }
+      const results = await geocodeAddress(trimmed, {
+        language,
+        region: 'gr',
+        limit: 1
       });
-
-      if (!response.ok) {
-        throw new Error(`Geocode failed (${response.status})`);
-      }
-
-      const data = await response.json();
-      if (Array.isArray(data) && data.length > 0) {
-        const lat = Number(data[0].lat);
-        const lon = Number(data[0].lon);
-        if (!Number.isNaN(lat) && !Number.isNaN(lon)) {
-          return { latitude: lat, longitude: lon, status: 'ok' };
+      if (Array.isArray(results) && results.length > 0) {
+        const first = results[0];
+        const lat = Number(first.latitude);
+        const lng = Number(first.longitude);
+        if (!Number.isNaN(lat) && !Number.isNaN(lng)) {
+          return { latitude: lat, longitude: lng, status: 'ok' };
         }
       }
 
@@ -290,7 +284,7 @@ export default function PharmacyCreatePage() {
 
     setSaving(true);
     try {
-      const geocodeResult = await geocodeAddress(form.address);
+      const geocodeResult = await resolveAddressCoordinates(form.address);
       let latitudeValue = geocodeResult.latitude;
       let longitudeValue = geocodeResult.longitude;
       const geocodeFailed = geocodeResult.status !== 'ok';

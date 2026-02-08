@@ -6,17 +6,43 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS'
 };
 
-const DEFAULT_USER_AGENT = 'Pharma-Alert/1.0 (contact: admin@pharma-alert.local)';
-const DEFAULT_REFERER = 'http://localhost:3000';
-
 const parseNumber = (value: unknown) => {
   const num = typeof value === 'string' ? Number(value) : (value as number);
   return Number.isFinite(num) ? num : null;
 };
 
+const parseAddressComponents = (components: any[] = []) => {
+  const byType: Record<string, any> = {};
+
+  for (const component of components) {
+    if (!Array.isArray(component?.types)) continue;
+    for (const type of component.types) {
+      byType[type] = component;
+    }
+  }
+
+  return {
+    street: byType.route?.long_name ?? null,
+    street_number: byType.street_number?.long_name ?? null,
+    locality: byType.locality?.long_name
+      ?? byType.postal_town?.long_name
+      ?? byType.administrative_area_level_3?.long_name
+      ?? null,
+    postal_code: byType.postal_code?.long_name ?? null,
+    country: byType.country?.long_name ?? null
+  };
+};
+
+const buildAddressText = (parts: ReturnType<typeof parseAddressComponents>, fallback: string | null) => {
+  const street = parts.street ?? '';
+  const streetNumber = parts.street_number ?? '';
+  const streetLine = `${street}${streetNumber ? ` ${streetNumber}` : ''}`.trim();
+  return streetLine || fallback;
+};
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response(null, { status: 204, headers: corsHeaders });
   }
 
   if (req.method !== 'POST') {
@@ -26,7 +52,7 @@ serve(async (req) => {
     });
   }
 
-  let payload: { lat?: unknown; lon?: unknown } = {};
+  let payload: { lat?: unknown; lon?: unknown; lng?: unknown } = {};
   try {
     payload = await req.json();
   } catch {
@@ -37,38 +63,40 @@ serve(async (req) => {
   }
 
   const lat = parseNumber(payload.lat);
-  const lon = parseNumber(payload.lon);
+  const lng = parseNumber(payload.lng ?? payload.lon);
 
-  if (lat === null || lon === null || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+  if (lat === null || lng === null || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
     return new Response(JSON.stringify({ error: 'Invalid lat/lon' }), {
       status: 400,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
   }
 
-  const userAgent = Deno.env.get('NOMINATIM_USER_AGENT') || DEFAULT_USER_AGENT;
-  const referer = Deno.env.get('APP_REFERER') || DEFAULT_REFERER;
+  // Required server-side secret:
+  // GOOGLE_GEOCODING_API_KEY
+  // Legacy NOMINATIM_USER_AGENT and APP_REFERER are no longer used.
+  const googleApiKey = Deno.env.get('GOOGLE_GEOCODING_API_KEY');
+  if (!googleApiKey) {
+    return new Response(JSON.stringify({ error: 'GOOGLE_GEOCODING_API_KEY is not configured' }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
 
-  const url = new URL('https://nominatim.openstreetmap.org/reverse');
+  const url = new URL('https://maps.googleapis.com/maps/api/geocode/json');
   url.search = new URLSearchParams({
-    format: 'jsonv2',
-    addressdetails: '1',
-    lat: String(lat),
-    lon: String(lon)
+    latlng: `${lat},${lng}`,
+    language: 'el',
+    region: 'gr',
+    key: googleApiKey
   }).toString();
 
   let data: any;
   try {
-    const response = await fetch(url.toString(), {
-      headers: {
-        'User-Agent': userAgent,
-        Referer: referer,
-        Accept: 'application/json'
-      }
-    });
+    const response = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
 
     if (!response.ok) {
-      return new Response(JSON.stringify({ error: `Nominatim error ${response.status}` }), {
+      return new Response(JSON.stringify({ error: `Google Geocoding error ${response.status}` }), {
         status: 502,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
@@ -82,19 +110,47 @@ serve(async (req) => {
     });
   }
 
-  const address = data?.address ?? null;
-  const road = address?.road ?? '';
-  const houseNumber = address?.house_number ?? '';
-  const addressText = road
-    ? `${road}${houseNumber ? ` ${houseNumber}` : ''}`.trim()
-    : (data?.display_name || null);
+  const status = data?.status;
+  if (status === 'ZERO_RESULTS') {
+    return new Response(JSON.stringify({
+      formatted_address: null,
+      display_name: null,
+      address_text: null,
+      address_components: {
+        street: null,
+        street_number: null,
+        locality: null,
+        postal_code: null,
+        country: null
+      },
+      lat,
+      lng
+    }), {
+      status: 200,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+
+  if (status !== 'OK') {
+    return new Response(JSON.stringify({ error: `Google Geocoding API status ${status || 'UNKNOWN'}` }), {
+      status: 502,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+
+  const firstResult = Array.isArray(data?.results) ? data.results[0] : null;
+  const location = firstResult?.geometry?.location ?? null;
+  const parsedAddress = parseAddressComponents(firstResult?.address_components || []);
+  const formattedAddress = firstResult?.formatted_address ?? null;
+  const addressText = buildAddressText(parsedAddress, formattedAddress);
 
   const responseBody = {
-    display_name: data?.display_name ?? null,
+    formatted_address: formattedAddress,
+    display_name: formattedAddress,
     address_text: addressText,
-    address,
-    lat: data?.lat ?? String(lat),
-    lon: data?.lon ?? String(lon)
+    address_components: parsedAddress,
+    lat: Number.isFinite(location?.lat) ? Number(location.lat) : lat,
+    lng: Number.isFinite(location?.lng) ? Number(location.lng) : lng
   };
 
   return new Response(JSON.stringify(responseBody), {

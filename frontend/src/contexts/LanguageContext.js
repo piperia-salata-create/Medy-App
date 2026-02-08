@@ -87,6 +87,8 @@ const translations = {
     pendingVerification: 'Εκκρεμεί Επαλήθευση',
     pendingVerificationDesc: 'Ο λογαριασμός σας αναμένει έγκριση από διαχειριστή.',
     verified: 'Επαληθευμένο',
+    pharmacyVerifiedBadge: 'Επαληθευμένο Φαρμακείο',
+    pharmacyNotVerifiedBadge: 'Δεν έχει επαληθευτεί ακόμα',
     
     // Settings
     language: 'Γλώσσα',
@@ -101,6 +103,13 @@ const translations = {
     notificationCenter: 'Κέντρο Ειδοποιήσεων',
     noNotifications: 'Δεν υπάρχουν ειδοποιήσεις',
     markAllRead: 'Επισήμανση Όλων ως Αναγνωσμένα',
+    notificationsEmptyDesc: 'Οι ειδοποιήσεις σας θα εμφανιστούν εδώ',
+    notificationRequestUpdateTitle: 'Ενημέρωση αιτήματος',
+    notificationRequestAcceptedBody: 'Το αίτημά σας έγινε αποδεκτό.',
+    notificationRequestRejectedBody: 'Το αίτημά σας απορρίφθηκε.',
+    notificationRequestStatusChangedBody: 'Η κατάσταση του αιτήματός σας άλλαξε.',
+    notificationNewPatientRequestTitle: 'Νέο αίτημα ασθενούς',
+    notificationNewPatientRequestBody: 'Φάρμακο: {medicine}',
     
     // Medication Reminders
     medicationReminders: 'Υπενθυμίσεις Φαρμακευτικής Αγωγής',
@@ -129,6 +138,34 @@ const translations = {
     featureAlertsDesc: 'Ενημερωθείτε όταν ένα φάρμακο γίνει διαθέσιμο',
     featureSenior: 'Λειτουργία Ηλικιωμένων',
     featureSeniorDesc: 'Απλοποιημένη διεπαφή με μεγάλα γράμματα',
+
+    // Learn More Page
+    learnMoreTitle: 'Πώς λειτουργεί το Pharma-Alert',
+    learnMoreSubtitle: 'Μια απλή διαδικασία για να βρείτε γρήγορα τα φάρμακα που χρειάζεστε.',
+    learnMoreStepsTitle: 'Βήματα',
+    learnMoreStepsSubtitle: 'Από την εγγραφή μέχρι την παραλαβή, όλα είναι ξεκάθαρα.',
+    learnMoreStepPrefix: 'Βήμα',
+    learnMoreStep1Title: 'Δημιουργήστε λογαριασμό',
+    learnMoreStep1Desc: 'Συνδεθείτε ως ασθενής για να ξεκινήσετε.',
+    learnMoreStep2Title: 'Δημιουργήστε αίτημα',
+    learnMoreStep2Desc: 'Περιγράψτε το φάρμακο που αναζητάτε.',
+    learnMoreStep3Title: 'Ενημερώνονται κοντινά φαρμακεία',
+    learnMoreStep3Desc: 'Τα διαθέσιμα φαρμακεία λαμβάνουν ειδοποίηση άμεσα.',
+    learnMoreStep4Title: 'Επιλέξτε φαρμακείο',
+    learnMoreStep4Desc: 'Δείτε τις απαντήσεις και διαλέξτε το καλύτερο.',
+    learnMoreStep5Title: 'Επικοινωνήστε ή παραλάβετε',
+    learnMoreStep5Desc: 'Πηγαίνετε στο φαρμακείο ή καλέστε για επιβεβαίωση.',
+    learnMoreBenefitsTitle: 'Τι κερδίζετε',
+    learnMoreBenefitRealtimeTitle: 'Σήματα διαθεσιμότητας σε πραγματικό χρόνο',
+    learnMoreBenefitRealtimeDesc: 'Λάβετε ενημερώσεις μόλις υπάρξει διαθέσιμο απόθεμα.',
+    learnMoreBenefitFastTitle: 'Ταχύτερες αποφάσεις παραλαβής',
+    learnMoreBenefitFastDesc: 'Μειώστε τον χρόνο αναμονής βρίσκοντας άμεσα λύση.',
+    learnMoreBenefitFavoritesTitle: 'Αγαπημένα φαρμακεία',
+    learnMoreBenefitFavoritesDesc: 'Αποθηκεύστε τα φαρμακεία που προτιμάτε για γρήγορη πρόσβαση.',
+    learnMoreBenefitPrivacyTitle: 'Ιδιωτικότητα πρώτα',
+    learnMoreBenefitPrivacyDesc: 'Τα δεδομένα σας μένουν ασφαλή και χρησιμοποιούνται μόνο για το αίτημά σας.',
+    learnMoreCtaTitle: 'Έτοιμοι να εγκαταστήσετε το Pharma-Alert;',
+    learnMoreCtaSubtitle: 'Αποκτήστε γρήγορη πρόσβαση και ειδοποιήσεις σε πραγματικό χρόνο.',
     
     // Stock Request
     requestStock: 'Αίτημα Αποθέματος',
@@ -174,6 +211,20 @@ const translations = {
     // Install PWA
     installApp: 'Εγκατάσταση Εφαρμογής',
     installAppDesc: 'Εγκαταστήστε την εφαρμογή για γρήγορη πρόσβαση',
+    installCta: 'Εγκαταστήστε',
+    installInstalledLabel: 'Εγκατεστημένο',
+    installConfirmTitle: 'Εγκατάσταση εφαρμογής',
+    installConfirmMessage: 'Θέλετε να εγκαταστήσετε την εφαρμογή σε αυτόν τον υπολογιστή;',
+    installUnavailable: 'Η εγκατάσταση δεν είναι διαθέσιμη αυτή τη στιγμή.',
+    installDesktopOnly: 'Η εγκατάσταση υποστηρίζεται προς το παρόν μόνο σε υπολογιστή.',
+    installModalTitle: 'Εγκατάσταση Εφαρμογής',
+    installModalSubtitle: 'Ακολουθήστε τα παρακάτω βήματα ανάλογα με τη συσκευή σας.',
+    installStepDesktopTitle: 'Chrome / Edge (Desktop)',
+    installStepDesktopDesc: 'Εικονίδιο εγκατάστασης στη γραμμή διευθύνσεων ή Μενού → Εγκατάσταση εφαρμογής.',
+    installStepAndroidTitle: 'Android Chrome',
+    installStepAndroidDesc: 'Μενού (⋮) → Εγκατάσταση εφαρμογής.',
+    installStepIosTitle: 'iOS Safari',
+    installStepIosDesc: 'Κουμπί κοινής χρήσης → Προσθήκη στην Αρχική Οθόνη.',
   },
   en: {
     // Common
@@ -260,6 +311,8 @@ const translations = {
     pendingVerification: 'Pending Verification',
     pendingVerificationDesc: 'Your account is awaiting admin approval.',
     verified: 'Verified',
+    pharmacyVerifiedBadge: 'Verified Pharmacy',
+    pharmacyNotVerifiedBadge: 'Not verified yet',
     
     // Settings
     language: 'Language',
@@ -274,6 +327,13 @@ const translations = {
     notificationCenter: 'Notification Center',
     noNotifications: 'No notifications',
     markAllRead: 'Mark All as Read',
+    notificationsEmptyDesc: 'Your notifications will appear here',
+    notificationRequestUpdateTitle: 'Request update',
+    notificationRequestAcceptedBody: 'Your request was accepted.',
+    notificationRequestRejectedBody: 'Your request was rejected.',
+    notificationRequestStatusChangedBody: 'Your request status changed.',
+    notificationNewPatientRequestTitle: 'New patient request',
+    notificationNewPatientRequestBody: 'Medicine: {medicine}',
     
     // Medication Reminders
     medicationReminders: 'Medication Reminders',
@@ -302,6 +362,34 @@ const translations = {
     featureAlertsDesc: 'Get notified when a medicine becomes available',
     featureSenior: 'Senior Mode',
     featureSeniorDesc: 'Simplified interface with larger text',
+
+    // Learn More Page
+    learnMoreTitle: 'How Pharma-Alert works',
+    learnMoreSubtitle: 'A simple flow to find the medicine you need faster.',
+    learnMoreStepsTitle: 'Steps',
+    learnMoreStepsSubtitle: 'From sign-in to pickup, everything is clear.',
+    learnMoreStepPrefix: 'Step',
+    learnMoreStep1Title: 'Create an account',
+    learnMoreStep1Desc: 'Sign in as a patient to get started.',
+    learnMoreStep2Title: 'Create a request',
+    learnMoreStep2Desc: 'Tell us which medicine you need.',
+    learnMoreStep3Title: 'Nearby pharmacies are notified',
+    learnMoreStep3Desc: 'Available pharmacies receive the request instantly.',
+    learnMoreStep4Title: 'Choose a pharmacy',
+    learnMoreStep4Desc: 'Review responses and select the best option.',
+    learnMoreStep5Title: 'Pick up or contact',
+    learnMoreStep5Desc: 'Visit the pharmacy or call to confirm.',
+    learnMoreBenefitsTitle: 'What you get',
+    learnMoreBenefitRealtimeTitle: 'Real-time availability signals',
+    learnMoreBenefitRealtimeDesc: 'Get updates as soon as stock is available.',
+    learnMoreBenefitFastTitle: 'Faster pickup decisions',
+    learnMoreBenefitFastDesc: 'Reduce waiting time with quick answers.',
+    learnMoreBenefitFavoritesTitle: 'Saved favorites',
+    learnMoreBenefitFavoritesDesc: 'Keep preferred pharmacies close at hand.',
+    learnMoreBenefitPrivacyTitle: 'Privacy-first',
+    learnMoreBenefitPrivacyDesc: 'Your data stays protected and is used only for your request.',
+    learnMoreCtaTitle: 'Ready to install Pharma-Alert?',
+    learnMoreCtaSubtitle: 'Get quick access and real-time alerts.',
     
     // Stock Request
     requestStock: 'Stock Request',
@@ -347,6 +435,20 @@ const translations = {
     // Install PWA
     installApp: 'Install App',
     installAppDesc: 'Install the app for quick access',
+    installCta: 'Install',
+    installInstalledLabel: 'Installed',
+    installConfirmTitle: 'Install app',
+    installConfirmMessage: 'Do you want to install the app on this computer?',
+    installUnavailable: 'Installation is not available right now.',
+    installDesktopOnly: 'Installation is currently supported on desktop only.',
+    installModalTitle: 'Install the App',
+    installModalSubtitle: 'Follow the steps below for your device.',
+    installStepDesktopTitle: 'Chrome / Edge (Desktop)',
+    installStepDesktopDesc: 'Use the install icon in the address bar or Menu → Install app.',
+    installStepAndroidTitle: 'Android Chrome',
+    installStepAndroidDesc: 'Menu (⋮) → Install app.',
+    installStepIosTitle: 'iOS Safari',
+    installStepIosDesc: 'Share icon → Add to Home Screen.',
   }
 };
 

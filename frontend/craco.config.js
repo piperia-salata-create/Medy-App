@@ -66,11 +66,6 @@ const webpackConfig = {
         webpackConfig.plugins.push(healthPluginInstance);
       }
 
-      // Externalize Leaflet to reduce bundle size.
-      webpackConfig.externals = {
-        ...(webpackConfig.externals || {}),
-        leaflet: 'L',
-      };
       return webpackConfig;
     },
   },

@@ -2,6 +2,7 @@ import React, { Suspense, lazy, memo } from 'react';
 import "@/App.css";
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
 import ToastHost from "./components/ToastHost";
+import { PwaInstallProvider } from "./hooks/usePwaInstall";
 
 // Contexts
 import { LanguageProvider } from "./contexts/LanguageContext";
@@ -11,6 +12,7 @@ import { NotificationProvider } from "./contexts/NotificationContext";
 
 // Pages
 const LandingPage = lazy(() => import("./pages/LandingPage"));
+const LearnMorePage = lazy(() => import("./pages/LearnMorePage"));
 const SignInPage = lazy(() => import("./pages/auth/SignInPage"));
 const SignUpPage = lazy(() => import("./pages/auth/SignUpPage"));
 const VerifyOtpPage = lazy(() => import("./pages/auth/VerifyOtpPage"));
@@ -21,6 +23,7 @@ const InterPharmacyPage = lazy(() => import("./pages/pharmacist/InterPharmacyPag
 const PharmacistConnectionsPage = lazy(() => import("./pages/pharmacist/PharmacistConnectionsPage"));
 const PharmacistPatientRequestsPage = lazy(() => import("./pages/pharmacist/PharmacistPatientRequestsPage"));
 const PharmacyCreatePage = lazy(() => import("./pages/pharmacist/PharmacyCreatePage"));
+const InventoryPage = lazy(() => import("./pages/pharmacist/InventoryPage"));
 const SettingsPage = lazy(() => import("./pages/shared/SettingsPage"));
 const SettingsProfilePage = lazy(() => import("./pages/shared/SettingsProfilePage"));
 const NotificationsPage = lazy(() => import("./pages/shared/NotificationsPage"));
@@ -236,6 +239,13 @@ function AppRoutes() {
           </PublicSuspense>
         </PublicRoute>
       } />
+      <Route path="/learn-more" element={
+        <PublicRoute>
+          <PublicSuspense>
+            <LearnMorePage />
+          </PublicSuspense>
+        </PublicRoute>
+      } />
       <Route path="/signin" element={
         <PublicRoute>
           <PublicSuspense>
@@ -347,6 +357,13 @@ function AppRoutes() {
           </ProtectedSuspense>
         </ProtectedRoute>
       } />
+      <Route path="/pharmacist/inventory" element={
+        <ProtectedRoute requiredRole="pharmacist">
+          <ProtectedSuspense>
+            <InventoryPage />
+          </ProtectedSuspense>
+        </ProtectedRoute>
+      } />
       <Route path="/pharmacist/connections" element={
         <ProtectedRoute requiredRole="pharmacist">
           <ProtectedSuspense>
@@ -394,10 +411,12 @@ function App() {
         <AuthProvider>
           <SeniorModeProvider>
             <NotificationProvider>
-              <div className="App">
-                <AppRoutes />
-                <ToastHost />
-              </div>
+              <PwaInstallProvider>
+                <div className="App">
+                  <AppRoutes />
+                  <ToastHost />
+                </div>
+              </PwaInstallProvider>
             </NotificationProvider>
           </SeniorModeProvider>
         </AuthProvider>

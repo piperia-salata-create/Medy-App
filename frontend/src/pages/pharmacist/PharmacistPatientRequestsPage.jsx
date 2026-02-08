@@ -16,13 +16,40 @@ const STATUS_KEYS = {
   pending: 'pending',
   accepted: 'accepted',
   rejected: 'rejected',
+  executed: 'executed',
   cancelled: 'cancelled',
   expired: 'expired'
 };
 
 const TXT = {
-  el: { cancelled: 'Ακυρώθηκε', rejected: 'Απορρίφθηκε', expired: 'Έληξε', completed: 'Ολοκληρώθηκε', created: 'Δημιουργήθηκε', cancelledAt: 'Ακυρώθηκε', expires: 'Λήγει', expiredAt: 'Έληξε' },
-  en: { cancelled: 'Cancelled', rejected: 'Rejected', expired: 'Expired', completed: 'Completed', created: 'Created', cancelledAt: 'Cancelled', expires: 'Expires', expiredAt: 'Expired' }
+  el: {
+    cancelled: 'Ακυρώθηκε',
+    rejected: 'Απορρίφθηκε',
+    expired: 'Έληξε',
+    executed: 'Εκτελέστηκε',
+    completed: 'Ολοκληρώθηκε',
+    created: 'Δημιουργήθηκε',
+    cancelledAt: 'Ακυρώθηκε',
+    expires: 'Λήγει',
+    expiredAt: 'Έληξε',
+    executedTab: 'Εκτελεσμένα',
+    markExecuted: 'Εκτελέστηκε',
+    executedToast: 'Το αίτημα εκτελέστηκε.'
+  },
+  en: {
+    cancelled: 'Cancelled',
+    rejected: 'Rejected',
+    expired: 'Expired',
+    executed: 'Executed',
+    completed: 'Completed',
+    created: 'Created',
+    cancelledAt: 'Cancelled',
+    expires: 'Expires',
+    expiredAt: 'Expired',
+    executedTab: 'Executed',
+    markExecuted: 'Executed',
+    executedToast: 'Request marked as executed.'
+  }
 };
 
 export default function PharmacistPatientRequestsPage() {
@@ -37,6 +64,7 @@ export default function PharmacistPatientRequestsPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('pending');
   const [respondingId, setRespondingId] = useState(null);
+  const [executingId, setExecutingId] = useState(null);
   const [nowTick, setNowTick] = useState(Date.now());
   const [patientDetailsByRequest, setPatientDetailsByRequest] = useState({});
 
@@ -229,6 +257,13 @@ export default function PharmacistPatientRequestsPage() {
         className: 'bg-pharma-slate-grey/10 text-pharma-slate-grey border border-pharma-slate-grey/20'
       };
     }
+    if (requestStatus === STATUS_KEYS.executed) {
+      return {
+        key: STATUS_KEYS.executed,
+        label: language === 'el' ? '\u0395\u03ba\u03c4\u03b5\u03bb\u03ad\u03c3\u03c4\u03b7\u03ba\u03b5' : 'Executed',
+        className: 'bg-pharma-teal/10 text-pharma-teal border border-pharma-teal/20'
+      };
+    }
     if (requestStatus === 'expired' || isExpired) {
       return {
         key: STATUS_KEYS.expired,
@@ -277,6 +312,12 @@ export default function PharmacistPatientRequestsPage() {
         className: 'bg-pharma-coral/10 text-pharma-coral border border-pharma-coral/20'
       };
     }
+    if (requestStatus === STATUS_KEYS.executed) {
+      return {
+        label: t('executed'),
+        className: 'bg-pharma-teal/10 text-pharma-teal border border-pharma-teal/20'
+      };
+    }
     if (request?.expires_at && new Date(request.expires_at).getTime() <= now) {
       return {
         label: t('expired'),
@@ -308,6 +349,9 @@ export default function PharmacistPatientRequestsPage() {
         item.statusInfo.key === STATUS_KEYS.cancelled || item.statusInfo.key === STATUS_KEYS.expired
       );
     }
+    if (activeTab === STATUS_KEYS.executed) {
+      return normalized.filter((item) => item.statusInfo.key === STATUS_KEYS.executed);
+    }
     return normalized.filter((item) => item.statusInfo.key === activeTab);
   }, [requests, activeTab, getStatusInfo]);
 
@@ -316,6 +360,7 @@ export default function PharmacistPatientRequestsPage() {
       pending: 0,
       accepted: 0,
       rejected: 0,
+      executed: 0,
       cancelledExpired: 0,
       all: requests?.length || 0
     };
@@ -324,6 +369,7 @@ export default function PharmacistPatientRequestsPage() {
       if (info.key === STATUS_KEYS.pending) base.pending += 1;
       if (info.key === STATUS_KEYS.accepted) base.accepted += 1;
       if (info.key === STATUS_KEYS.rejected) base.rejected += 1;
+      if (info.key === STATUS_KEYS.executed) base.executed += 1;
       if (info.key === STATUS_KEYS.cancelled || info.key === STATUS_KEYS.expired) base.cancelledExpired += 1;
     });
     return base;
@@ -382,6 +428,24 @@ export default function PharmacistPatientRequestsPage() {
     }
   };
 
+  const markRequestExecuted = async (requestId) => {
+    if (!pharmacy?.id || !requestId) return;
+    setExecutingId(requestId);
+    try {
+      const { error } = await supabase.rpc('mark_request_executed', { p_request_id: requestId });
+      if (error) throw error;
+      toast.success(t('executedToast'));
+      fetchRequests(pharmacy);
+    } catch (error) {
+      console.error('Error marking request executed:', error);
+      toast.error(language === 'el'
+        ? '\u03a3\u03c6\u03ac\u03bb\u03bc\u03b1 \u03b5\u03ba\u03c4\u03ad\u03bb\u03b5\u03c3\u03b7\u03c2 \u03b1\u03b9\u03c4\u03ae\u03bc\u03b1\u03c4\u03bf\u03c2.'
+        : 'Failed to mark request executed.');
+    } finally {
+      setExecutingId(null);
+    }
+  };
+
   if (!isPharmacist()) {
     return null;
   }
@@ -421,6 +485,9 @@ export default function PharmacistPatientRequestsPage() {
                 </TabsTrigger>
                 <TabsTrigger value="accepted" className="rounded-full">
                   {language === 'el' ? '\u0391\u03c0\u03bf\u03b4\u03b5\u03ba\u03c4\u03ac' : 'Accepted'} ({counts.accepted})
+                </TabsTrigger>
+                <TabsTrigger value={STATUS_KEYS.executed} className="rounded-full">
+                  {t('executedTab')} ({counts.executed})
                 </TabsTrigger>
                 <TabsTrigger value="rejected" className="rounded-full">
                   {language === 'el' ? '\u0391\u03c0\u03bf\u03c1\u03c1\u03b9\u03c6\u03b8\u03ad\u03bd\u03c4\u03b1' : 'Rejected'} ({counts.rejected})
@@ -466,6 +533,9 @@ export default function PharmacistPatientRequestsPage() {
                   const isCancelledExpired = activeTab === 'cancelled-expired';
                   const selectedByPatient = request?.selected_pharmacy_id
                     && request.selected_pharmacy_id === pharmacy?.id;
+                  const canExecute = statusInfo.key === STATUS_KEYS.accepted
+                    && selectedByPatient
+                    && request?.status === STATUS_KEYS.accepted;
                   const canViewPatientDetails = item?.status === 'accepted'
                     && request?.selected_pharmacy_id === pharmacy?.id;
                   const patientDetails = canViewPatientDetails
@@ -624,6 +694,21 @@ export default function PharmacistPatientRequestsPage() {
                             >
                               <XCircle className="w-4 h-4" />
                               {language === 'el' ? '\u0391\u03c0\u03cc\u03c1\u03c1\u03b9\u03c8\u03b7' : 'Reject'}
+                            </Button>
+                          </div>
+                        )}
+                        {canExecute && (
+                          <div className="flex items-center gap-2">
+                            <Button
+                              size="sm"
+                              className="rounded-full bg-pharma-teal hover:bg-pharma-teal/90 gap-1"
+                              onClick={() => markRequestExecuted(request?.id)}
+                              disabled={executingId === request?.id}
+                              data-testid={`execute-request-${request?.id}`}
+                            >
+                              {executingId === request?.id
+                                ? (language === 'el' ? '\u0395\u03ba\u03c4\u03ad\u03bb\u03b5\u03c3\u03b7...' : 'Executing...')
+                                : t('markExecuted')}
                             </Button>
                           </div>
                         )}

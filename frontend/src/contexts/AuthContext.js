@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { supabase, supabaseAnonKey, supabaseUrl } from '../lib/supabase';
 
 const DEBUG_AUTH = false;
-const PROFILE_SELECT_FIELDS = 'id, role, full_name, honorific, pharmacy_name, email';
+const PROFILE_SELECT_FIELDS = 'id, role, full_name, honorific, pharmacy_name, email, radius_km';
 
 const AuthContext = createContext();
 const AuthSessionContext = createContext();

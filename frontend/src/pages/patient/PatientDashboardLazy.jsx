@@ -5,19 +5,20 @@ import { useLanguage } from '../../contexts/LanguageContext';
 import { useSeniorMode } from '../../contexts/SeniorModeContext';
 import { useNotifications } from '../../contexts/NotificationContext';
 import { supabase } from '../../lib/supabase';
+import { findPharmacyIdsByProductQuery, getProductSuggestionLabel } from '../../lib/inventory/searchInventory';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
-import { StatusBadge, OnCallBadge } from '../../components/ui/status-badge';
-import { SkeletonPharmacyCard, SkeletonMedicineCard, SkeletonList, SkeletonCard } from '../../components/ui/skeleton-loaders';
+import { OnCallBadge } from '../../components/ui/status-badge';
+import { SkeletonPharmacyCard, SkeletonList, SkeletonCard } from '../../components/ui/skeleton-loaders';
 import { EmptyState } from '../../components/ui/empty-states';
 import useGeolocation from '../../hooks/useGeolocation';
-import { calculateDistance, formatDistance } from '../../lib/geoUtils';
+import { formatDistance } from '../../lib/geoUtils';
+import { formatWeeklyHours } from '../../lib/formatHours';
 import { toast } from 'sonner';
 import { 
-  Search, 
   MapPin, 
   Phone, 
   Heart, 
@@ -33,13 +34,16 @@ import {
   Map,
   List,
   Locate,
+  Search,
   Send
 } from 'lucide-react';
 
 const PharmacyMap = lazy(() => import('../../components/ui/pharmacy-map').then((mod) => ({
-  default: mod.PharmacyMap
+  default: mod.PharmacyMap || mod.default
 })));
-const PatientRequestsList = lazy(() => import('./PatientRequestsListLazy'));
+const PatientRequestsList = lazy(() => import('./PatientRequestsListLazy').then((mod) => ({
+  default: mod.default || mod.PatientRequestsListLazy
+})));
 
 const isDev = process.env.NODE_ENV !== 'production';
 
@@ -92,14 +96,17 @@ export default function PatientDashboardLazy() {
   const { location: userLocation, loading: locationLoading, getLocation } = useGeolocation();
   const isProfileReady = profileStatus === 'ready';
 
-  const [searchQuery, setSearchQuery] = useState('');
   const [pharmacies, setPharmacies] = useState([]);
-  const [medicines, setMedicines] = useState([]);
+  const [nearbyPharmacies, setNearbyPharmacies] = useState([]);
   const [favorites, setFavorites] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchLoading, setSearchLoading] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [viewMode, setViewMode] = useState('list'); // 'list' or 'map'
+  const [inventorySearchQuery, setInventorySearchQuery] = useState('');
+  const [inventoryMatchPharmacyIds, setInventoryMatchPharmacyIds] = useState([]);
+  const [inventoryProductSuggestions, setInventoryProductSuggestions] = useState([]);
+  const [inventorySearchLoading, setInventorySearchLoading] = useState(false);
+  const [inventoryRefreshTick, setInventoryRefreshTick] = useState(0);
   const [requestDialogOpen, setRequestDialogOpen] = useState(false);
   const [requestMedicine, setRequestMedicine] = useState('');
   const [requestDosage, setRequestDosage] = useState('');
@@ -119,6 +126,23 @@ export default function PatientDashboardLazy() {
   const [lightStageReady, setLightStageReady] = useState(false);
   const canLoadLight = isProfileReady && lightStageReady;
   const canLoadData = isProfileReady && deferMount && lightStageReady;
+  const radiusKm = useMemo(() => {
+    const raw =
+      profile?.nearby_radius_km ??
+      profile?.radius_km ??
+      profile?.search_radius_km ??
+      profile?.distance_radius_km ??
+      null;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }, [profile]);
+  const hasLocation = Number.isFinite(userLocation?.lat) && Number.isFinite(userLocation?.lng);
+  const hasRadius = Number.isFinite(radiusKm) && radiusKm > 0;
+  const canQueryNearby = hasLocation && hasRadius;
+  const nearbyPharmacyIds = useMemo(
+    () => (nearbyPharmacies || []).map((pharmacy) => pharmacy?.id).filter(Boolean),
+    [nearbyPharmacies]
+  );
 
   // Fetch pharmacies
   const fetchPharmacies = useCallback(async () => {
@@ -130,46 +154,52 @@ export default function PatientDashboardLazy() {
 
       if (error) throw error;
       
-      let pharmacyData = data || [];
-      if (isDev) {
-        console.log('[PatientDashboard] nearby pharmacies fetch', {
-          userCoords: userLocation ? { lat: userLocation.lat, lng: userLocation.lng } : null,
-          radius: null,
-          count: pharmacyData.length
-        });
-      }
-
-      const hasUserCoords = Number.isFinite(userLocation?.lat) && Number.isFinite(userLocation?.lng);
-      const getDistance = (pharmacy) => {
-        const lat = Number(pharmacy?.latitude);
-        const lng = Number(pharmacy?.longitude);
-        if (!hasUserCoords || !Number.isFinite(lat) || !Number.isFinite(lng)) {
-          return null;
-        }
-        return calculateDistance(userLocation.lat, userLocation.lng, lat, lng);
-      };
-
-      // Sort by distance if user location available
-      if (pharmacyData.length > 0) {
-        pharmacyData = pharmacyData.map(p => ({
-          ...p,
-          distance: getDistance(p)
-        }));
-
-        if (hasUserCoords) {
-          pharmacyData = pharmacyData.sort((a, b) => {
-            if (a.distance === null) return 1;
-            if (b.distance === null) return -1;
-            return a.distance - b.distance;
-          });
-        }
-      }
-      
-      setPharmacies(pharmacyData);
+      setPharmacies(data || []);
     } catch (error) {
       console.error('Error fetching pharmacies:', error);
     }
-  }, [canLoadData, userLocation]);
+  }, [canLoadData]);
+
+  const fetchNearbyPharmacies = useCallback(async () => {
+    if (!canLoadData) return;
+    if (!canQueryNearby) {
+      setNearbyPharmacies([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .rpc('get_nearby_pharmacies', {
+          p_lat: userLocation.lat,
+          p_lng: userLocation.lng,
+          p_radius_km: radiusKm
+        });
+
+      if (error) throw error;
+
+      const pharmacyData = (data || []).map((row) => ({
+        ...row,
+        distance: row.distance_km
+      }));
+      if (isDev) {
+        console.log('[PatientDashboard] nearby pharmacies fetch', {
+          userCoords: userLocation ? { lat: userLocation.lat, lng: userLocation.lng } : null,
+          radius: radiusKm,
+          count: pharmacyData.length
+        });
+        console.log('[PatientDashboard] nearby list count', pharmacyData.length);
+      }
+
+      setNearbyPharmacies(pharmacyData);
+    } catch (error) {
+      console.error('Error fetching nearby pharmacies:', error);
+      setNearbyPharmacies([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [canLoadData, canQueryNearby, radiusKm, userLocation]);
 
   // Fetch user favorites
   const fetchFavorites = useCallback(async () => {
@@ -215,7 +245,7 @@ export default function PatientDashboardLazy() {
         .from('patient_requests')
         .select('*')
         .eq('patient_id', user.id)
-        .in('status', ['pending', 'accepted', 'cancelled', 'rejected'])
+        .in('status', ['pending', 'accepted', 'cancelled', 'rejected', 'expired', 'executed', 'closed'])
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -236,7 +266,7 @@ export default function PatientDashboardLazy() {
             status,
             responded_at,
             pharmacy_id,
-            pharmacies (name)
+            pharmacies (id, name, address, phone, latitude, longitude)
           `)
           .in('request_id', requestIds);
 
@@ -295,38 +325,6 @@ export default function PatientDashboardLazy() {
     }
   }, [canLoadLight, user]);
 
-  // Search medicines
-  const searchMedicines = useCallback(async (query) => {
-    if (!canLoadData) return;
-    if (!query.trim()) {
-      setMedicines([]);
-      return;
-    }
-
-    setSearchLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('medicines')
-        .select(`
-          *,
-          pharmacy_stock (
-            pharmacy_id,
-            status,
-            quantity,
-            pharmacies (name, address, phone, latitude, longitude)
-          )
-        `)
-        .ilike('name', `%${query}%`)
-        .limit(20);
-
-      if (error) throw error;
-      setMedicines(data || []);
-    } catch (error) {
-      console.error('Error searching medicines:', error);
-    } finally {
-      setSearchLoading(false);
-    }
-  }, [canLoadData]);
 
   // Toggle favorite
   const toggleFavorite = async (pharmacyId) => {
@@ -374,7 +372,19 @@ export default function PatientDashboardLazy() {
 
     setRequestSending(true);
     try {
-      const targetPharmacyIds = getTargetPharmacyIds();
+      if (!canQueryNearby) {
+        toast.error(t('requestNoPharmacies'));
+        return;
+      }
+
+      const nearbyList = nearbyPharmacies || [];
+      if (isDev) {
+        console.log('[PatientDashboard] submit nearby count', nearbyList.length);
+      }
+
+      const nearbyIds = new Set(nearbyList.map((pharmacy) => pharmacy?.id).filter(Boolean));
+      const nearbyFullList = (pharmacies || []).filter((pharmacy) => nearbyIds.has(pharmacy?.id));
+      const targetPharmacyIds = getTargetPharmacyIds(nearbyFullList);
       if (targetPharmacyIds.length === 0) {
         toast.error(t('requestNoPharmacies'));
         return;
@@ -539,37 +549,19 @@ export default function PatientDashboardLazy() {
     [language]
   );
 
-  const formatPharmacyHours = (hoursValue) => {
-    if (!hoursValue || typeof hoursValue !== 'string') return null;
-    let parsed;
-    try {
-      parsed = JSON.parse(hoursValue);
-    } catch (err) {
-      return hoursValue;
-    }
-    if (!parsed || typeof parsed !== 'object') return hoursValue;
-    const labels = language === 'el'
-      ? { mon: '\u0394\u03b5\u03c5', tue: '\u03a4\u03c1\u03b9', wed: '\u03a4\u03b5\u03c4', thu: '\u03a0\u03b5\u03bc', fri: '\u03a0\u03b1\u03c1', sat: '\u03a3\u03b1\u03b2', sun: '\u039a\u03c5\u03c1' }
-      : { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' };
-    const closedLabel = language === 'el' ? '\u039a\u03bb\u03b5\u03b9\u03c3\u03c4\u03cc' : 'Closed';
-    const dayOrder = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-    const parts = dayOrder.map((dayKey) => {
-      const entry = parsed[dayKey] || {};
-      const openValue = typeof entry.open === 'string' ? entry.open : '';
-      const closeValue = typeof entry.close === 'string' ? entry.close : '';
-      const hasTimes = openValue && closeValue;
-      const isClosed = entry.closed === true || !hasTimes;
-      const timeValue = isClosed ? closedLabel : `${openValue}-${closeValue}`;
-      return `${labels[dayKey]} ${timeValue}`;
-    });
-    return parts.join(', ');
-  };
+  const formatPharmacyHours = (hoursValue) => formatWeeklyHours(hoursValue);
 
-  const getTargetPharmacyIds = () => {
+  const filteredNearbyPharmacies = useMemo(() => {
+    const query = inventorySearchQuery.trim();
+    if (query.length < 2) return nearbyPharmacies;
+    const matchSet = new Set(inventoryMatchPharmacyIds);
+    return nearbyPharmacies.filter((pharmacy) => matchSet.has(pharmacy?.id));
+  }, [nearbyPharmacies, inventorySearchQuery, inventoryMatchPharmacyIds]);
+
+  const getTargetPharmacyIds = (pharmacyList = []) => {
     const target = [];
     const favoriteIds = new Set(favorites || []);
-    const pharmacyList = pharmacies || [];
-    const eligiblePharmacies = pharmacyList.filter((p) => {
+    const eligiblePharmacies = (pharmacyList || []).filter((p) => {
       if (!p?.owner_id) return false;
       if (!p?.is_verified) return false;
       const isOnCall = Boolean(p?.is_on_call);
@@ -636,9 +628,9 @@ export default function PatientDashboardLazy() {
   useEffect(() => {
     if (!canLoadData) return;
     if (userLocation) {
-      fetchPharmacies();
+      fetchNearbyPharmacies();
     }
-  }, [canLoadData, userLocation, fetchPharmacies]);
+  }, [canLoadData, userLocation, fetchNearbyPharmacies]);
 
   // Light prefetch
   useEffect(() => {
@@ -660,42 +652,77 @@ export default function PatientDashboardLazy() {
     const sessionKey = session?.access_token || session?.user?.id || user?.id || 'anon';
     if (initFetchSessionRef.current === sessionKey) return;
     initFetchSessionRef.current = sessionKey;
-    const init = async () => {
-      setLoading(true);
-      await Promise.all([fetchPharmacies(), fetchMyRequests()]);
-      setLoading(false);
+  const init = async () => {
+      await Promise.all([fetchPharmacies(), fetchNearbyPharmacies(), fetchMyRequests()]);
     };
     init();
-  }, [authLoading, fetchPharmacies, fetchMyRequests, user, session, canLoadData]);
+  }, [authLoading, fetchPharmacies, fetchNearbyPharmacies, fetchMyRequests, user, session, canLoadData]);
 
-  // Debounced search
   useEffect(() => {
     if (!canLoadData) return;
-    const timer = setTimeout(() => {
-      searchMedicines(searchQuery);
+    if (!canQueryNearby) return;
+    fetchNearbyPharmacies();
+  }, [canLoadData, canQueryNearby, fetchNearbyPharmacies, userLocation, radiusKm]);
+
+  useEffect(() => {
+    const query = inventorySearchQuery.trim();
+    if (!canQueryNearby || query.length < 2 || nearbyPharmacyIds.length === 0) {
+      setInventoryMatchPharmacyIds([]);
+      setInventoryProductSuggestions([]);
+      setInventorySearchLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setInventorySearchLoading(true);
+      try {
+        const result = await findPharmacyIdsByProductQuery({
+          query,
+          pharmacyIds: nearbyPharmacyIds,
+          associationStatus: 'active'
+        });
+        if (!cancelled) {
+          setInventoryMatchPharmacyIds(result?.pharmacyIds || []);
+          setInventoryProductSuggestions((result?.products || []).slice(0, 6));
+        }
+      } catch (error) {
+        console.error('Patient inventory search failed:', error);
+        if (!cancelled) {
+          setInventoryMatchPharmacyIds([]);
+          setInventoryProductSuggestions([]);
+        }
+      } finally {
+        if (!cancelled) setInventorySearchLoading(false);
+      }
     }, 300);
-    return () => clearTimeout(timer);
-  }, [searchQuery, searchMedicines, canLoadData]);
 
-  // Subscribe to realtime updates
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [inventorySearchQuery, nearbyPharmacyIds, canQueryNearby, inventoryRefreshTick]);
+
   useEffect(() => {
     if (!canLoadData) return;
-    const channel = supabase
-      .channel('pharmacy_stock_changes')
+    const inventoryChannel = supabase
+      .channel('patient_inventory_search')
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'pharmacy_stock' },
-        () => {
-          fetchPharmacies();
-          if (searchQuery) searchMedicines(searchQuery);
-        }
+        { event: '*', schema: 'public', table: 'pharmacy_inventory' },
+        () => setInventoryRefreshTick((tick) => tick + 1)
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'product_catalog' },
+        () => setInventoryRefreshTick((tick) => tick + 1)
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(inventoryChannel);
     };
-  }, [fetchPharmacies, searchMedicines, searchQuery, canLoadData]);
+  }, [canLoadData]);
 
   // Subscribe to patient request updates
   useEffect(() => {
@@ -894,19 +921,7 @@ export default function PatientDashboardLazy() {
             </p>
           </div>
 
-          {/* Search Bar */}
-          <div className="relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-pharma-slate-grey" />
-            <Input
-              type="text"
-              placeholder={t('searchPlaceholder')}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-12 pl-12 pr-4 rounded-xl border-pharma-grey-pale bg-white shadow-sm focus:border-pharma-teal focus:ring-pharma-teal/20 text-base"
-              data-testid="medicine-search-input"
-            />
-          </div>
-        </section>
+          </section>
 
         {/* Request Medicine */}
         <section className="page-enter">
@@ -945,74 +960,12 @@ export default function PatientDashboardLazy() {
             cancelingId={cancelingId}
             choosePharmacyForRequest={choosePharmacyForRequest}
             choosingPharmacyId={choosingPharmacyId}
+            userLocation={userLocation}
           />
         </Suspense>
 
-        {/* Search Results */}
-        {searchQuery && (
-          <section className="page-enter">
-            <h2 className="font-heading text-lg font-semibold text-pharma-dark-slate mb-3">
-              {language === 'el' ? 'Αποτελέσματα Αναζήτησης' : 'Search Results'}
-            </h2>
-            
-            {searchLoading ? (
-              <SkeletonList count={3} CardComponent={SkeletonMedicineCard} />
-            ) : medicines.length === 0 ? (
-              <EmptyState 
-                title={t('noResults')}
-                description={language === 'el' 
-                  ? 'Δοκιμάστε διαφορετικό όνομα φαρμάκου'
-                  : 'Try a different medicine name'}
-              />
-            ) : (
-              <div className="space-y-3">
-                {medicines.map((medicine) => (
-                  <Card 
-                    key={medicine.id}
-                    className="gradient-card rounded-xl shadow-sm border border-pharma-grey-pale/50 hover:shadow-md transition-shadow"
-                  >
-                    <CardContent className="p-4">
-                      <div className="flex justify-between items-start mb-2">
-                        <div>
-                          <h3 className="font-heading font-semibold text-pharma-dark-slate">
-                            {medicine.name}
-                          </h3>
-                          <p className="text-xs text-pharma-slate-grey">{medicine.description}</p>
-                        </div>
-                      </div>
-                      
-                      {medicine.pharmacy_stock?.length > 0 && (
-                        <div className="space-y-2 mt-3">
-                          <p className="text-xs font-medium text-pharma-charcoal">
-                            {language === 'el' ? 'Διαθέσιμο σε:' : 'Available at:'}
-                          </p>
-                          {medicine.pharmacy_stock.slice(0, 3).map((stock, idx) => (
-                            <div 
-                              key={idx}
-                              className="flex items-center justify-between p-2.5 bg-pharma-ice-blue/50 rounded-lg"
-                            >
-                              <div className="flex items-center gap-2">
-                                <MapPin className="w-3.5 h-3.5 text-pharma-teal" />
-                                <span className="text-sm text-pharma-charcoal">
-                                  {stock.pharmacies?.name || 'Pharmacy'}
-                                </span>
-                              </div>
-                              <StatusBadge status={stock.status} size="sm" />
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            )}
-          </section>
-        )}
-
         {/* Nearby Pharmacies */}
-        {!searchQuery && (
-          <section className="page-enter stagger-1">
+        <section className="page-enter stagger-1">
             <div className="flex justify-between items-center mb-4">
               <div className="flex items-center gap-3">
                 <h2 className="font-heading text-lg font-semibold text-pharma-dark-slate">
@@ -1058,126 +1011,211 @@ export default function PatientDashboardLazy() {
               </div>
             </div>
 
-            {/* Map View */}
-            {viewMode === 'map' && (
-              <Suspense fallback={<div className="mb-4 h-[350px] w-full rounded-2xl bg-white/70 shadow-sm animate-pulse" />}>
-                <div className="mb-4">
-                  <PharmacyMap 
-                    pharmacies={pharmacies}
-                    userLocation={userLocation}
-                    height="350px"
-                    className="shadow-md"
-                  />
+            <div className="relative mb-3">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-pharma-slate-grey" />
+              <Input
+                value={inventorySearchQuery}
+                onChange={(e) => setInventorySearchQuery(e.target.value)}
+                placeholder={language === 'el' ? 'Αναζήτηση προϊόντος καταλόγου...' : 'Search catalog product...'}
+                className="h-10 pl-9 rounded-xl border-pharma-grey-pale"
+                data-testid="patient-inventory-search-input"
+              />
+            </div>
+            {inventorySearchQuery.trim().length >= 2 && inventoryProductSuggestions.length > 0 && (
+              <div className="mb-3 rounded-xl border border-pharma-grey-pale bg-white p-2">
+                <p className="mb-1 text-xs text-pharma-slate-grey">
+                  {language === 'el' ? 'Προτάσεις προϊόντων' : 'Product suggestions'}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {inventoryProductSuggestions.map((product) => {
+                    const label = getProductSuggestionLabel(product, language);
+                    return (
+                      <button
+                        key={product.id}
+                        type="button"
+                        className="rounded-full border border-pharma-grey-pale bg-pharma-ice-blue px-3 py-1 text-xs text-pharma-charcoal hover:border-pharma-teal/40"
+                        onClick={() => setInventorySearchQuery(label)}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
                 </div>
-              </Suspense>
+              </div>
+            )}
+            {inventorySearchQuery.trim().length >= 2 && (
+              <p className="text-xs text-pharma-slate-grey mb-3">
+                {inventorySearchLoading
+                  ? (language === 'el' ? 'Αναζήτηση συσχετίσεων προϊόντων...' : 'Searching product associations...')
+                  : (filteredNearbyPharmacies.length > 0
+                    ? (language === 'el'
+                      ? `Βρέθηκαν ${filteredNearbyPharmacies.length} κοντινά φαρμακεία που το διαχειρίζονται.`
+                      : `Found ${filteredNearbyPharmacies.length} nearby pharmacies associated with this product.`)
+                    : (language === 'el'
+                      ? 'Δεν βρέθηκαν κοντινά συσχετισμένα φαρμακεία για αυτό το προϊόν.'
+                      : 'No nearby associated pharmacies found for this product.'))}
+              </p>
             )}
 
-            {/* List View */}
-            {viewMode === 'list' && (
-              loading ? (
-                <SkeletonList count={3} CardComponent={SkeletonPharmacyCard} />
-              ) : pharmacies.length === 0 ? (
-                <EmptyState 
-                  icon={MapPin}
-                  title={language === 'el' ? 'Δεν βρέθηκαν φαρμακεία' : 'No pharmacies found'}
-                />
-              ) : (
-                <div className="space-y-3">
-                  {pharmacies.map((pharmacy) => (
-                    <Card 
-                      key={pharmacy.id}
-                      className="gradient-card rounded-xl shadow-sm border border-pharma-grey-pale/50 hover:shadow-md hover:border-pharma-teal/30 transition-all cursor-pointer"
-                      data-testid={`pharmacy-card-${pharmacy.id}`}
-                    >
-                      <CardContent className="p-4">
-                        <div className="flex items-start gap-3">
-                          <div className="w-12 h-12 rounded-xl bg-pharma-teal/10 flex items-center justify-center flex-shrink-0">
-                            <Pill className="w-6 h-6 text-pharma-teal" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-start justify-between gap-2 min-w-0">
-                              <div className="min-w-0">
-                                <h3 className="font-heading font-semibold text-pharma-dark-slate truncate">
-                                  {pharmacy.name}
-                                </h3>
-                                <div className="flex items-start gap-1.5 text-xs text-pharma-slate-grey mt-0.5 min-w-0">
-                                  <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
-                                  <span className="line-clamp-2 break-words overflow-hidden">
-                                    {pharmacy.address}
+            {!canQueryNearby ? (
+              <EmptyState
+                icon={MapPin}
+                title={
+                  !hasLocation
+                    ? (language === 'el' ? 'Απαιτείται τοποθεσία' : 'Location required')
+                    : (language === 'el' ? 'Ορίστε ακτίνα αναζήτησης' : 'Set search radius')
+                }
+                description={
+                  !hasLocation
+                    ? (language === 'el'
+                      ? 'Ενεργοποιήστε την τοποθεσία για να δείτε κοντινά φαρμακεία.'
+                      : 'Enable location to see nearby pharmacies.')
+                    : (language === 'el'
+                      ? 'Ορίστε την ακτίνα αναζήτησης για να εμφανιστούν κοντινά φαρμακεία.'
+                      : 'Set your search radius to see nearby pharmacies.')
+                }
+                action={
+                  !hasLocation
+                    ? getLocation
+                    : () => navigate('/patient/settings')
+                }
+                actionLabel={
+                  !hasLocation
+                    ? (language === 'el' ? 'Χρήση τοποθεσίας' : 'Use location')
+                    : (language === 'el' ? 'Ρυθμίσεις' : 'Settings')
+                }
+              />
+            ) : (
+              <>
+                {/* Map View */}
+                {viewMode === 'map' && (
+                  <Suspense fallback={<div className="mb-4 h-[350px] w-full rounded-2xl bg-white/70 shadow-sm animate-pulse" />}>
+                    <div className="mb-4">
+                      <PharmacyMap 
+                        pharmacies={filteredNearbyPharmacies}
+                        userLocation={userLocation}
+                        height="350px"
+                        className="shadow-md"
+                      />
+                    </div>
+                  </Suspense>
+                )}
+
+                {/* List View */}
+                {viewMode === 'list' && (
+                  loading ? (
+                    <SkeletonList count={3} CardComponent={SkeletonPharmacyCard} />
+                  ) : filteredNearbyPharmacies.length === 0 ? (
+                    <EmptyState 
+                      icon={MapPin}
+                      title={inventorySearchQuery.trim().length >= 2
+                        ? (language === 'el' ? 'Δεν βρέθηκαν φαρμακεία με αυτό το προϊόν.' : 'No pharmacies found for this product.')
+                        : (language === 'el' ? 'Δεν βρέθηκαν κοντινά φαρμακεία.' : 'No nearby pharmacies found.')}
+                    />
+                  ) : (
+                    <div className="space-y-3">
+                      {filteredNearbyPharmacies.map((pharmacy) => {
+                        const hoursLabel = formatPharmacyHours(pharmacy.hours);
+                        const distanceKm = pharmacy.distance_km ?? pharmacy.distance;
+                        return (
+                        <Card 
+                          key={pharmacy.id}
+                          className="gradient-card rounded-xl shadow-sm border border-pharma-grey-pale/50 hover:shadow-md hover:border-pharma-teal/30 transition-all cursor-pointer"
+                          data-testid={`pharmacy-card-${pharmacy.id}`}
+                        >
+                          <CardContent className="p-4">
+                            <div className="flex items-start gap-3">
+                              <div className="w-12 h-12 rounded-xl bg-pharma-teal/10 flex items-center justify-center flex-shrink-0">
+                                <Pill className="w-6 h-6 text-pharma-teal" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-start justify-between gap-2 min-w-0">
+                                  <div className="min-w-0">
+                                    <h3 className="font-heading font-semibold text-pharma-dark-slate truncate">
+                                      {pharmacy.name}
+                                    </h3>
+                                    <div className="flex items-start gap-1.5 text-xs text-pharma-slate-grey mt-0.5 min-w-0">
+                                      <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
+                                      <span className="line-clamp-2 break-words overflow-hidden">
+                                        {pharmacy.address}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      toggleFavorite(pharmacy.id);
+                                    }}
+                                    className="p-1.5 rounded-full hover:bg-pharma-ice-blue transition-colors"
+                                    data-testid={`favorite-btn-${pharmacy.id}`}
+                                  >
+                                    <Heart 
+                                      className={`w-5 h-5 transition-colors ${
+                                        favorites.includes(pharmacy.id) 
+                                          ? 'fill-pharma-teal text-pharma-teal' 
+                                          : 'text-pharma-silver'
+                                      }`}
+                                    />
+                                  </button>
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-2 mt-2">
+                                  {pharmacy.is_on_call && <OnCallBadge />}
+                                  <span className="text-xs font-medium text-pharma-teal bg-pharma-teal/10 px-2 py-0.5 rounded-full">
+                                    {distanceKm !== null && distanceKm !== undefined
+                                      ? formatDistance(distanceKm)
+                                      : '\u2014'}
                                   </span>
+                                  {hoursLabel && (
+                                    <div className="flex items-center gap-1 text-xs text-pharma-slate-grey">
+                                      <Clock className="w-3.5 h-3.5" />
+                                      <span>{hoursLabel}</span>
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="flex gap-2 mt-3">
+                                  <a 
+                                    href={`tel:${pharmacy.phone}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="flex-1"
+                                  >
+                                    <Button 
+                                      variant="outline" 
+                                      size="sm"
+                                      className="w-full rounded-lg gap-1.5 border-pharma-teal text-pharma-teal hover:bg-pharma-teal/5 h-9"
+                                      data-testid={`call-btn-${pharmacy.id}`}
+                                    >
+                                      <Phone className="w-4 h-4" />
+                                      {t('callNow')}
+                                    </Button>
+                                  </a>
+                                  <Link 
+                                    to={`/patient/pharmacy/${pharmacy.id}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="flex-1"
+                                  >
+                                    <Button 
+                                      size="sm"
+                                      className="w-full rounded-lg gap-1.5 gradient-teal text-white h-9"
+                                    >
+                                      <Navigation className="w-4 h-4" />
+                                      {t('getDirections')}
+                                    </Button>
+                                  </Link>
                                 </div>
                               </div>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  toggleFavorite(pharmacy.id);
-                                }}
-                                className="p-1.5 rounded-full hover:bg-pharma-ice-blue transition-colors"
-                                data-testid={`favorite-btn-${pharmacy.id}`}
-                              >
-                                <Heart 
-                                  className={`w-5 h-5 transition-colors ${
-                                    favorites.includes(pharmacy.id) 
-                                      ? 'fill-pharma-teal text-pharma-teal' 
-                                      : 'text-pharma-silver'
-                                  }`}
-                                />
-                              </button>
                             </div>
-
-                            <div className="flex flex-wrap items-center gap-2 mt-2">
-                              {pharmacy.is_on_call && <OnCallBadge />}
-                              <span className="text-xs font-medium text-pharma-teal bg-pharma-teal/10 px-2 py-0.5 rounded-full">
-                                {pharmacy.distance !== null && pharmacy.distance !== undefined
-                                  ? formatDistance(pharmacy.distance)
-                                  : '\u2014'}
-                              </span>
-                              <div className="flex items-center gap-1 text-xs text-pharma-slate-grey">
-                                <Clock className="w-3.5 h-3.5" />
-                                <span>{formatPharmacyHours(pharmacy.hours) || pharmacy.hours || '08:00 - 21:00'}</span>
-                              </div>
-                            </div>
-
-                            <div className="flex gap-2 mt-3">
-                              <a 
-                                href={`tel:${pharmacy.phone}`}
-                                onClick={(e) => e.stopPropagation()}
-                                className="flex-1"
-                              >
-                                <Button 
-                                  variant="outline" 
-                                  size="sm"
-                                  className="w-full rounded-lg gap-1.5 border-pharma-teal text-pharma-teal hover:bg-pharma-teal/5 h-9"
-                                  data-testid={`call-btn-${pharmacy.id}`}
-                                >
-                                  <Phone className="w-4 h-4" />
-                                  {t('callNow')}
-                                </Button>
-                              </a>
-                              <Link 
-                                to={`/patient/pharmacy/${pharmacy.id}`}
-                                onClick={(e) => e.stopPropagation()}
-                                className="flex-1"
-                              >
-                                <Button 
-                                  size="sm"
-                                  className="w-full rounded-lg gap-1.5 gradient-teal text-white h-9"
-                                >
-                                  <Navigation className="w-4 h-4" />
-                                  {t('getDirections')}
-                                </Button>
-                              </Link>
-                            </div>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              )
+                          </CardContent>
+                        </Card>
+                        );
+                      })}
+                    </div>
+                  )
+                )}
+              </>
             )}
           </section>
-        )}
       </main>
 
       {/* Request Dialog */}

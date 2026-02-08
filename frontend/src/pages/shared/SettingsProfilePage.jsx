@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { supabase } from '../../lib/supabase';
-import { searchAddress, reverseGeocode } from '../../lib/geocoding/nominatim';
+import { geocodeAddress, reverseGeocode } from '../../lib/geocoding/googleGeocoding';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
@@ -31,7 +31,8 @@ const createEmptySchedule = () => dayOrder.reduce((acc, key) => {
 const emptyForm = {
   full_name: '',
   email: '',
-  honorific: ''
+  honorific: '',
+  radius_km: ''
 };
 
 const emptyPharmacyForm = {
@@ -118,30 +119,10 @@ const cloneSchedule = (schedule) => dayOrder.reduce((acc, day) => {
   return acc;
 }, {});
 
-const normalizeGeocodeResults = (data) => {
-  if (!Array.isArray(data)) return [];
-  return data.map((item) => {
-    const latitude = Number(item?.lat);
-    const longitude = Number(item?.lon);
-    if (Number.isNaN(latitude) || Number.isNaN(longitude)) return null;
-    const addressText = item?.display_name || item?.name || '';
-    if (!addressText) return null;
-    return {
-      id: item?.place_id ?? `${latitude},${longitude},${addressText}`,
-      displayName: addressText,
-      address_text: addressText,
-      osm_id: item?.osm_id ?? null,
-      osm_type: item?.osm_type ?? null,
-      provider: 'nominatim',
-      latitude,
-      longitude
-    };
-  }).filter(Boolean);
-};
-
 export default function SettingsProfilePage() {
   const { user, profile, loading: authLoading, isPharmacist, fetchProfile } = useAuth();
   const { t, language } = useLanguage();
+  const DEBUG_MAP_PIN = localStorage.getItem('DEBUG_LOGS') === '1';
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -149,6 +130,7 @@ export default function SettingsProfilePage() {
   const [originalProfile, setOriginalProfile] = useState({ ...emptyForm });
   const [profileData, setProfileData] = useState(null);
   const [formError, setFormError] = useState('');
+  const [radiusError, setRadiusError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [pharmacyLoading, setPharmacyLoading] = useState(true);
   const [pharmacyForm, setPharmacyForm] = useState({ ...emptyPharmacyForm });
@@ -169,7 +151,6 @@ export default function SettingsProfilePage() {
   const [geocodeError, setGeocodeError] = useState('');
   const [geocodeEmpty, setGeocodeEmpty] = useState(false);
   const [mapPinOpen, setMapPinOpen] = useState(false);
-  const [mapPinPosition, setMapPinPosition] = useState(null);
   const [expandedDay, setExpandedDay] = useState(() => {
     return jsDayOrder[new Date().getDay()] || null;
   });
@@ -178,7 +159,6 @@ export default function SettingsProfilePage() {
   const suppressGeocodeRef = useRef(false);
   const lastGeocodeAtRef = useRef(0);
   const mapPinRequestIdRef = useRef(0);
-  const mapPinDebounceRef = useRef(null);
 
   const handleOpenMapPin = useCallback(() => {
     preloadMapPinModal();
@@ -220,7 +200,8 @@ export default function SettingsProfilePage() {
     const nextForm = {
       full_name: data.full_name || '',
       email: data.email || user?.email || '',
-      honorific: data.honorific || ''
+      honorific: data.honorific || '',
+      radius_km: data.radius_km != null ? String(data.radius_km) : ''
     };
     setForm(nextForm);
     setOriginalProfile(nextForm);
@@ -237,7 +218,7 @@ export default function SettingsProfilePage() {
       try {
         const { data, error } = await supabase
           .from('profiles')
-          .select('id,email,role,full_name,pharmacy_name,language')
+          .select('id,email,role,full_name,pharmacy_name,language,radius_km')
           .eq('id', user.id)
           .single();
 
@@ -345,6 +326,9 @@ export default function SettingsProfilePage() {
 
   const handleChange = (field) => (eventOrValue) => {
     const value = eventOrValue?.target ? eventOrValue.target.value : eventOrValue;
+    if (field === 'radius_km') {
+      setRadiusError('');
+    }
     setForm((prev) => ({
       ...prev,
       [field]: value
@@ -445,19 +429,22 @@ export default function SettingsProfilePage() {
     return { hoursValue: JSON.stringify(schedule), error: '' };
   };
 
-  const waitForGeocodeRateLimit = async () => {
+  const waitForGeocodeRateLimit = useCallback(async () => {
     const elapsed = Date.now() - lastGeocodeAtRef.current;
     const delay = Math.max(GEOCODE_MIN_INTERVAL_MS - elapsed, 0);
     if (delay > 0) {
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
     lastGeocodeAtRef.current = Date.now();
-  };
-
-  const searchNominatim = useCallback(async (query) => {
-    const data = await searchAddress(query);
-    return normalizeGeocodeResults(data);
   }, []);
+
+  const searchGeocoding = useCallback(async (query) => (
+    geocodeAddress(query, {
+      language,
+      region: 'gr',
+      limit: 5
+    })
+  ), [language]);
 
   useEffect(() => {
     if (!isPharmacistRole) return;
@@ -487,7 +474,7 @@ export default function SettingsProfilePage() {
       setGeocodeError('');
       try {
         await waitForGeocodeRateLimit();
-        const results = await searchNominatim(query);
+        const results = await searchGeocoding(query);
         if (geocodeRequestIdRef.current !== requestId) return;
         setGeocodeResults(results);
         setGeocodeEmpty(results.length === 0);
@@ -510,7 +497,7 @@ export default function SettingsProfilePage() {
       }
       geocodeRequestIdRef.current += 1;
     };
-  }, [pharmacyForm.address, isPharmacistRole, language, searchNominatim]);
+  }, [pharmacyForm.address, isPharmacistRole, language, searchGeocoding, waitForGeocodeRateLimit]);
 
   const selectGeocodeResult = (result) => {
     if (!result) return;
@@ -523,9 +510,6 @@ export default function SettingsProfilePage() {
       latitude: result.latitude,
       longitude: result.longitude,
       address_text: result.address_text || result.displayName,
-      provider: result.provider || 'nominatim',
-      osm_id: result.osm_id ?? null,
-      osm_type: result.osm_type ?? null,
       source: 'search'
     });
     setGeocodeResults([]);
@@ -535,6 +519,9 @@ export default function SettingsProfilePage() {
 
 
   const runMapReverseGeocode = useCallback(async (latValue, lngValue) => {
+    if (DEBUG_MAP_PIN) {
+      console.debug('[MapPin] reverseGeocode', { lat: latValue, lng: lngValue });
+    }
     const requestId = mapPinRequestIdRef.current + 1;
     mapPinRequestIdRef.current = requestId;
     geocodeRequestIdRef.current += 1;
@@ -551,7 +538,7 @@ export default function SettingsProfilePage() {
       const data = await reverseGeocode(latValue, lngValue);
       if (mapPinRequestIdRef.current !== requestId) return;
 
-      const addressText = data?.address_text || data?.display_name || fallbackAddress;
+      const addressText = data?.address_text || data?.formatted_address || data?.display_name || fallbackAddress;
       if (addressText) {
         suppressGeocodeRef.current = true;
         setPharmacyForm((prev) => ({
@@ -564,9 +551,6 @@ export default function SettingsProfilePage() {
         latitude: latValue,
         longitude: lngValue,
         address_text: addressText || null,
-        provider: 'nominatim',
-        osm_id: null,
-        osm_type: null,
         source: 'map'
       });
     } catch (err) {
@@ -579,9 +563,6 @@ export default function SettingsProfilePage() {
         latitude: latValue,
         longitude: lngValue,
         address_text: fallbackAddress || null,
-        provider: 'nominatim',
-        osm_id: null,
-        osm_type: null,
         source: 'map'
       });
     } finally {
@@ -589,33 +570,23 @@ export default function SettingsProfilePage() {
         setGeocodeLoading(false);
       }
     }
-  }, [language, pharmacyForm.address, reverseGeocode, waitForGeocodeRateLimit]);
-
-  useEffect(() => {
-    if (!mapPinOpen || !mapPinPosition) return;
-    const latValue = Number(mapPinPosition.lat);
-    const lngValue = Number(mapPinPosition.lng);
-    if (Number.isNaN(latValue) || Number.isNaN(lngValue)) return;
-
-    if (mapPinDebounceRef.current) {
-      clearTimeout(mapPinDebounceRef.current);
-    }
-
-    mapPinDebounceRef.current = setTimeout(() => {
-      runMapReverseGeocode(latValue, lngValue);
-    }, 500);
-
-    return () => {
-      if (mapPinDebounceRef.current) {
-        clearTimeout(mapPinDebounceRef.current);
-      }
-    };
-  }, [mapPinOpen, mapPinPosition, runMapReverseGeocode]);
+  }, [language, pharmacyForm.address, waitForGeocodeRateLimit, DEBUG_MAP_PIN]);
 
   const handleMapPinConfirm = async ({ lat, lng }) => {
     const latValue = Number(lat);
     const lngValue = Number(lng);
     if (Number.isNaN(latValue) || Number.isNaN(lngValue)) return;
+
+    if (DEBUG_MAP_PIN) {
+      console.debug('[MapPin] confirm', { lat: latValue, lng: lngValue });
+    }
+
+    setPendingCoords({
+      latitude: latValue,
+      longitude: lngValue,
+      address_text: pharmacyForm.address.trim() || null,
+      source: 'map'
+    });
 
     const hasPendingMatch = pendingCoords
       && pendingCoords.source === 'map'
@@ -628,12 +599,15 @@ export default function SettingsProfilePage() {
   };
 
   const profileHasChanges = useMemo(() => {
+    const radiusRaw = String(form.radius_km ?? '').trim();
+    const originalRadiusRaw = String(originalProfile.radius_km ?? '').trim();
     return (
       form.full_name.trim() !== originalProfile.full_name.trim()
       || form.email.trim() !== originalProfile.email.trim()
       || (form.honorific || '') !== (originalProfile.honorific || '')
+      || (!isPharmacistRole && radiusRaw !== originalRadiusRaw)
     );
-  }, [form, originalProfile]);
+  }, [form, originalProfile, isPharmacistRole]);
 
   const pharmacyHasChanges = useMemo(() => {
     if (!isPharmacistRole) return false;
@@ -681,6 +655,9 @@ export default function SettingsProfilePage() {
       const profileUpdates = {};
       const trimmedName = form.full_name.trim();
       const trimmedEmail = form.email.trim();
+      const radiusRaw = String(form.radius_km ?? '').trim();
+      const originalRadiusRaw = String(originalProfile.radius_km ?? '').trim();
+      const radiusChanged = !isPharmacistRole && radiusRaw !== originalRadiusRaw;
 
       if (trimmedName !== originalProfile.full_name.trim()) {
         profileUpdates.full_name = trimmedName;
@@ -690,6 +667,30 @@ export default function SettingsProfilePage() {
       }
       if ((form.honorific || '') !== (originalProfile.honorific || '')) {
         profileUpdates.honorific = form.honorific || null;
+      }
+      if (radiusChanged) {
+        const parsedRadius = Number(radiusRaw);
+        if (!radiusRaw) {
+          setRadiusError(language === 'el'
+            ? 'Απαιτείται ακτίνα αναζήτησης.'
+            : 'Search radius is required.');
+          profileError = true;
+        } else if (!Number.isFinite(parsedRadius) || parsedRadius < 1 || parsedRadius > 200) {
+          setRadiusError(language === 'el'
+            ? 'Η ακτίνα πρέπει να είναι από 1 έως 200 χλμ.'
+            : 'Radius must be between 1 and 200 km.');
+          profileError = true;
+        } else {
+          setRadiusError('');
+          profileUpdates.radius_km = parsedRadius;
+        }
+      } else if (!isPharmacistRole) {
+        setRadiusError('');
+      }
+
+      if (profileError) {
+        setSaving(false);
+        return;
       }
 
       if (Object.keys(profileUpdates).length > 0) {
@@ -705,7 +706,10 @@ export default function SettingsProfilePage() {
           const nextProfile = {
             full_name: trimmedName,
             email: trimmedEmail,
-            honorific: form.honorific || ''
+            honorific: form.honorific || '',
+            radius_km: radiusChanged
+              ? String(profileUpdates.radius_km ?? '')
+              : originalRadiusRaw
           };
           setOriginalProfile(nextProfile);
           setForm(nextProfile);
@@ -776,9 +780,6 @@ export default function SettingsProfilePage() {
               latitude: existingCoords.latitude,
               longitude: existingCoords.longitude,
               address_text: null,
-              provider: null,
-              osm_id: null,
-              osm_type: null,
               status: 'ok'
             };
             if (pendingCoords) {
@@ -786,9 +787,6 @@ export default function SettingsProfilePage() {
                 latitude: pendingCoords.latitude,
                 longitude: pendingCoords.longitude,
                 address_text: pendingCoords.address_text ?? null,
-                provider: pendingCoords.provider ?? null,
-                osm_id: pendingCoords.osm_id ?? null,
-                osm_type: pendingCoords.osm_type ?? null,
                 status: 'ok'
               };
             } else if (!isEditMode || addressChanged) {
@@ -796,9 +794,6 @@ export default function SettingsProfilePage() {
                 latitude: null,
                 longitude: null,
                 address_text: null,
-                provider: null,
-                osm_id: null,
-                osm_type: null,
                 status: 'manual'
               };
             }
@@ -807,13 +802,18 @@ export default function SettingsProfilePage() {
             let longitudeValue = geocodeResult.longitude;
             const geocodeFailed = geocodeResult.status !== 'ok';
             const addressTextValue = (geocodeResult.address_text ?? pharmacyForm.address.trim()) || null;
-            const providerValue = geocodeResult.provider ?? null;
-            const osmIdValue = geocodeResult.osm_id ?? null;
-            const osmTypeValue = geocodeResult.osm_type ?? null;
 
             if (geocodeFailed && isEditMode) {
               latitudeValue = existingCoords.latitude;
               longitudeValue = existingCoords.longitude;
+            }
+
+            if (DEBUG_MAP_PIN) {
+              console.debug('[MapPin] save payload', {
+                latitude: latitudeValue,
+                longitude: longitudeValue,
+                address_text: addressTextValue
+              });
             }
 
             if (isEditMode) {
@@ -830,9 +830,6 @@ export default function SettingsProfilePage() {
                 updates.latitude = latitudeValue;
                 updates.longitude = longitudeValue;
                 updates.address_text = addressTextValue;
-                updates.provider = providerValue;
-                updates.osm_id = osmIdValue;
-                updates.osm_type = osmTypeValue;
               }
 
               if (Object.keys(updates).length > 0) {
@@ -878,10 +875,7 @@ export default function SettingsProfilePage() {
                     is_on_call: Boolean(pharmacyForm.is_on_call),
                     on_call_schedule: pharmacyForm.on_call_schedule.trim() || null,
                     latitude: latitudeValue,
-                    longitude: longitudeValue,
-                    provider: providerValue,
-                    osm_id: osmIdValue,
-                    osm_type: osmTypeValue
+                    longitude: longitudeValue
                   })
                   .select('id')
                   .single();
@@ -982,9 +976,12 @@ export default function SettingsProfilePage() {
     setProfileData((prev) => ({
       ...(prev || {}),
       full_name: originalProfile.full_name,
-      email: originalProfile.email
+      email: originalProfile.email,
+      honorific: originalProfile.honorific,
+      radius_km: originalProfile.radius_km
     }));
     setFormError('');
+    setRadiusError('');
     setSuccessMessage('');
     setPharmacyForm({ ...pharmacyOriginal });
     setExistingPharmacyId(originalPharmacyId);
@@ -1116,6 +1113,30 @@ export default function SettingsProfilePage() {
                     disabled={loading}
                   />
                 </div>
+
+                {!isPharmacistRole && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-pharma-charcoal flex items-center gap-2">
+                      <MapPin className="w-4 h-4 text-pharma-teal" />
+                      {language === 'el' ? 'Ακτίνα αναζήτησης (km)' : 'Search radius (km)'}
+                    </label>
+                    <Input
+                      type="number"
+                      min="1"
+                      max="200"
+                      step="1"
+                      value={form.radius_km}
+                      onChange={handleChange('radius_km')}
+                      placeholder="10"
+                      className={`rounded-xl ${radiusError ? 'border-pharma-coral' : ''}`}
+                      data-testid="profile-radius-input"
+                      disabled={loading}
+                    />
+                    {radiusError && (
+                      <p className="text-xs text-pharma-coral">{radiusError}</p>
+                    )}
+                  </div>
+                )}
 
                 <div className="rounded-xl border border-pharma-grey-pale/60 bg-white">
                   <div className="flex items-center justify-between p-4">
@@ -1474,7 +1495,6 @@ export default function SettingsProfilePage() {
               onOpenChange={setMapPinOpen}
               initialPosition={mapPinInitialPosition}
               onConfirm={handleMapPinConfirm}
-              onPositionChange={setMapPinPosition}
               title={language === 'el' ? 'Επιλέξτε τοποθεσία' : 'Select location'}
               confirmLabel={language === 'el' ? 'Επιβεβαίωση' : 'Confirm'}
             />

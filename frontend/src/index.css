@@ -256,21 +256,6 @@ input, select, textarea {
   min-height: 52px;
 }
 
-/* Leaflet Map Overrides */
-.leaflet-container {
-  font-family: 'Inter', sans-serif;
-  border-radius: 1rem;
-}
-
-.leaflet-popup-content-wrapper {
-  border-radius: 0.75rem;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
-}
-
-.leaflet-popup-content {
-  margin: 12px 16px;
-}
-
 @layer base {
   [data-debug-wrapper="true"] {
     display: contents !important;

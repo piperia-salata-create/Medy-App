@@ -6,7 +6,7 @@ import { useSeniorMode } from '../../contexts/SeniorModeContext';
 import { supabase } from '../../lib/supabase';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-import { StatusBadge, OnCallBadge, VerifiedBadge } from '../../components/ui/status-badge';
+import { OnCallBadge, VerifiedBadge } from '../../components/ui/status-badge';
 import { Skeleton } from '../../components/ui/skeleton-loaders';
 import { toast } from 'sonner';
 import { 
@@ -30,7 +30,7 @@ export default function PharmacyDetailPage() {
   const { seniorMode } = useSeniorMode();
   
   const [pharmacy, setPharmacy] = useState(null);
-  const [stock, setStock] = useState([]);
+  const [catalogProducts, setCatalogProducts] = useState([]);
   const [isFavorite, setIsFavorite] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -53,24 +53,34 @@ export default function PharmacyDetailPage() {
         if (pharmacyError) throw pharmacyError;
         if (!pharmacyData) {
           setPharmacy(null);
-          setStock([]);
+          setCatalogProducts([]);
           return;
         }
 
         if (pharmacyError) throw pharmacyError;
         setPharmacy(pharmacyData);
 
-        // Fetch stock
-        const { data: stockData, error: stockError } = await supabase
-          .from('pharmacy_stock')
+        // Fetch declared catalog associations for this pharmacy
+        const { data: catalogData, error: catalogError } = await supabase
+          .from('pharmacy_inventory')
           .select(`
-            *,
-            medicines (id, name, description, category)
+            id,
+            product_id,
+            product:product_catalog (
+              id,
+              category,
+              name_el,
+              name_en,
+              brand,
+              strength,
+              form
+            )
           `)
-          .eq('pharmacy_id', id);
+          .eq('pharmacy_id', id)
+          .eq('association_status', 'active');
 
-        if (!stockError) {
-          setStock(stockData || []);
+        if (!catalogError) {
+          setCatalogProducts(catalogData || []);
         }
 
         // Check if favorite
@@ -298,34 +308,42 @@ export default function PharmacyDetailPage() {
           </Card>
         )}
 
-        {/* Available Medicines */}
-        {stock.length > 0 && (
+        {/* Catalog products associated with this pharmacy */}
+        {catalogProducts.length > 0 && (
           <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale page-enter" style={{ animationDelay: '0.2s' }}>
             <CardHeader className="pb-3">
               <CardTitle className="font-heading text-lg text-pharma-dark-slate">
-                {language === 'el' ? 'Διαθέσιμα Φάρμακα' : 'Available Medicines'}
+                {language === 'el' ? 'Προϊόντα που διαχειρίζεται' : 'Products this pharmacy handles'}
               </CardTitle>
             </CardHeader>
             <CardContent className="pt-0">
               <div className="space-y-3">
-                {stock.map((item) => (
+                {catalogProducts.map((item) => {
+                  const product = item?.product || {};
+                  const displayName = language === 'el'
+                    ? (product.name_el || product.name_en || 'Προϊόν')
+                    : (product.name_en || product.name_el || 'Product');
+                  return (
                   <div 
                     key={item.id}
                     className="flex items-center justify-between p-3 bg-pharma-ice-blue rounded-xl"
                   >
                     <div>
                       <p className="font-medium text-pharma-charcoal">
-                        {item.medicines?.name || 'Unknown'}
+                        {displayName}
                       </p>
-                      {item.medicines?.category && (
+                      {product?.category && (
                         <p className="text-sm text-pharma-slate-grey">
-                          {item.medicines.category}
+                          {product.category}
                         </p>
                       )}
                     </div>
-                    <StatusBadge status={item.status} size="sm" />
+                    <span className="rounded-full bg-pharma-steel-blue/10 px-2 py-1 text-xs text-pharma-steel-blue">
+                      {language === 'el' ? 'Συσχέτιση καταλόγου' : 'Catalog association'}
+                    </span>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </CardContent>
           </Card>

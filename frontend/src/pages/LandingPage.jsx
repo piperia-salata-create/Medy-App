@@ -3,23 +3,24 @@ import { Link } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
 import { Button } from '../components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import useInstallHandler from '../hooks/useInstallHandler';
 import { 
   Pill, 
   MapPin, 
   Bell, 
-  Clock, 
-  Users, 
   Smartphone,
   Globe,
   ArrowRight,
   CheckCircle2,
   Zap,
-  Shield,
   Heart
 } from 'lucide-react';
 
 export default function LandingPage() {
   const { t, language, setLanguage } = useLanguage();
+  const { isInstalled, handleInstallClick } = useInstallHandler();
+
+  const installLabel = isInstalled ? t('installInstalledLabel') : t('installCta');
 
   const features = [
     {
@@ -93,11 +94,15 @@ export default function LandingPage() {
                 {t('signIn')}
               </Button>
             </Link>
-            <Link to="/signup">
-              <Button size="sm" className="rounded-full h-9 px-5 gradient-teal text-white shadow-sm hover:shadow-md transition-shadow" data-testid="landing-signup-btn">
-                {t('getStarted')}
-              </Button>
-            </Link>
+            <Button
+              size="sm"
+              className="rounded-full h-9 px-5 gradient-teal text-white shadow-sm hover:shadow-md transition-shadow"
+              data-testid="landing-signup-btn"
+              onClick={handleInstallClick}
+              disabled={isInstalled}
+            >
+              {installLabel}
+            </Button>
           </div>
         </div>
       </nav>
@@ -127,23 +132,27 @@ export default function LandingPage() {
               </p>
               
               <div className="flex flex-col sm:flex-row gap-3 mb-10">
-                <Link to="/signup">
-                  <Button 
-                    size="lg" 
-                    className="rounded-full gradient-teal text-white px-8 h-13 text-base font-semibold shadow-lg hover:shadow-xl transition-all gap-2 group"
-                    data-testid="hero-getstarted-btn"
-                  >
-                    {t('getStarted')}
-                    <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                  </Button>
-                </Link>
                 <Button 
                   size="lg" 
-                  variant="outline" 
-                  className="rounded-full border-2 border-pharma-dark-slate/20 text-pharma-dark-slate hover:bg-pharma-dark-slate/5 px-8 h-13 text-base font-semibold"
+                  className="rounded-full gradient-teal text-white px-8 h-13 text-base font-semibold shadow-lg hover:shadow-xl transition-all gap-2 group"
+                  data-testid="hero-getstarted-btn"
+                  onClick={handleInstallClick}
+                  disabled={isInstalled}
                 >
-                  {t('learnMore')}
+                  {installLabel}
+                  {!isInstalled && (
+                    <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                  )}
                 </Button>
+                <Link to="/learn-more">
+                  <Button 
+                    size="lg" 
+                    variant="outline" 
+                    className="rounded-full border-2 border-pharma-dark-slate/20 text-pharma-dark-slate hover:bg-pharma-dark-slate/5 px-8 h-13 text-base font-semibold"
+                  >
+                    {t('learnMore')}
+                  </Button>
+                </Link>
               </div>
 
               {/* Benefits List */}
@@ -273,14 +282,14 @@ export default function LandingPage() {
               <p className="text-white/80 mb-8 max-w-md mx-auto">
                 {t('installAppDesc')}
               </p>
-              <Link to="/signup">
-                <Button 
-                  size="lg"
-                  className="rounded-full bg-white text-pharma-royal-blue hover:bg-white/90 px-8 h-12 font-semibold shadow-lg"
-                >
-                  {t('getStarted')}
-                </Button>
-              </Link>
+              <Button 
+                size="lg"
+                className="rounded-full bg-white text-pharma-royal-blue hover:bg-white/90 px-8 h-12 font-semibold shadow-lg"
+                onClick={handleInstallClick}
+                disabled={isInstalled}
+              >
+                {installLabel}
+              </Button>
             </div>
           </div>
         </div>
@@ -327,6 +336,7 @@ export default function LandingPage() {
           </div>
         </div>
       </footer>
+
     </div>
   );
 }

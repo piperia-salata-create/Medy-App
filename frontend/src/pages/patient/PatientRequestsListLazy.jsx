@@ -2,9 +2,11 @@ import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import { SkeletonList, SkeletonCard } from '../../components/ui/skeleton-loaders';
 import { EmptyState } from '../../components/ui/empty-states';
-import { ClipboardList, MapPin } from 'lucide-react';
+import { ClipboardList, MapPin, Navigation, Phone } from 'lucide-react';
+import { calculateDistance, formatDistance } from '../../lib/geoUtils';
 
 const HistoryTab = lazy(() => import('./PatientRequestsHistoryTab'));
 
@@ -15,11 +17,13 @@ const PatientRequestsListLazy = ({
   cancelPatientRequest,
   cancelingId,
   choosePharmacyForRequest,
-  choosingPharmacyId
+  choosingPharmacyId,
+  userLocation
 }) => {
   const { t, language } = useLanguage();
   const [requestsTab, setRequestsTab] = useState('active');
   const [historyVisibleCount, setHistoryVisibleCount] = useState(5);
+  const [selectedPharmacyDetails, setSelectedPharmacyDetails] = useState(null);
 
   const activeRequests = useMemo(() => {
     const now = Date.now();
@@ -33,9 +37,9 @@ const PatientRequestsListLazy = ({
   const historyRequests = useMemo(() => {
     const now = Date.now();
     return (requests || []).filter((request) => {
-      const isCancelledOrRejected = request.status === 'cancelled' || request.status === 'rejected';
+      const isHistoryStatus = ['cancelled', 'rejected', 'executed', 'closed', 'expired'].includes(request.status);
       const isTimeExpired = request.expires_at && new Date(request.expires_at).getTime() <= now;
-      return isCancelledOrRejected || isTimeExpired;
+      return isHistoryStatus || isTimeExpired;
     }).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   }, [requests]);
 
@@ -101,6 +105,7 @@ const PatientRequestsListLazy = ({
 
   const getHistoryStatusLabel = (request) => {
     const isExpired = request.expires_at && new Date(request.expires_at).getTime() <= Date.now();
+    if (request.status === 'executed') return language === 'el' ? 'Εκτελεσμένο' : 'Executed';
     if (request.status === 'cancelled') return language === 'el' ? 'Ακυρώθηκε' : 'Cancelled';
     if (request.status === 'rejected') return language === 'el' ? 'Απορρίφθηκε' : 'Rejected';
     if (isExpired) return language === 'el' ? 'Έληξε' : 'Expired';
@@ -116,6 +121,10 @@ const PatientRequestsListLazy = ({
       accepted: {
         label: t('requestStatusAccepted'),
         className: 'bg-pharma-sea-green/10 text-pharma-sea-green border border-pharma-sea-green/20'
+      },
+      executed: {
+        label: language === 'el' ? 'Εκτελεσμένο' : 'Executed',
+        className: 'bg-pharma-teal/10 text-pharma-teal border border-pharma-teal/20'
       },
       rejected: {
         label: t('requestStatusRejected'),
@@ -136,6 +145,10 @@ const PatientRequestsListLazy = ({
       expired: {
         label: language === 'el' ? 'Έληξε' : 'Expired',
         className: 'bg-pharma-slate-grey/10 text-pharma-slate-grey border border-pharma-slate-grey/20'
+      },
+      closed: {
+        label: t('requestStatusClosed'),
+        className: 'bg-pharma-coral/10 text-pharma-coral border border-pharma-coral/20'
       }
     };
 
@@ -162,11 +175,54 @@ const PatientRequestsListLazy = ({
     return new Date(request.expires_at).getTime() < Date.now();
   };
 
+  const buildSelectedPharmacyDetails = (pharmacy) => {
+    if (!pharmacy) return null;
+    const lat = Number(pharmacy.latitude);
+    const lng = Number(pharmacy.longitude);
+    const hasCoords = Number.isFinite(lat) && Number.isFinite(lng);
+    const userLat = Number(userLocation?.lat);
+    const userLng = Number(userLocation?.lng);
+    const hasUserCoords = Number.isFinite(userLat) && Number.isFinite(userLng);
+    const distanceKm = hasCoords && hasUserCoords
+      ? calculateDistance(userLat, userLng, lat, lng)
+      : null;
+
+    return {
+      id: pharmacy.id,
+      name: pharmacy.name,
+      address: pharmacy.address || '',
+      phone: pharmacy.phone || '',
+      latitude: hasCoords ? lat : null,
+      longitude: hasCoords ? lng : null,
+      distanceKm
+    };
+  };
+
+  const openDirections = (details) => {
+    if (!details) return;
+    const hasCoords = Number.isFinite(details.latitude) && Number.isFinite(details.longitude);
+    const destination = hasCoords
+      ? `${details.latitude},${details.longitude}`
+      : details.address;
+    if (!destination) return;
+    const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
   const renderRequestCard = (request, isHistory) => {
     const expired = isExpiredRequest(request);
     const statusKey = expired ? 'expired' : request.status;
     const statusConfig = getRequestStatusConfig(statusKey);
     const historyStatusLabel = getHistoryStatusLabel(request);
+    const historyStatusKey = (() => {
+      if (request.status === 'executed') return 'executed';
+      if (request.status === 'cancelled') return 'cancelled';
+      if (request.status === 'rejected') return 'rejected';
+      if (request.status === 'closed') return 'closed';
+      if (expired) return 'expired';
+      return request.status;
+    })();
+    const historyStatusConfig = getRequestStatusConfig(historyStatusKey);
     const lastResponse = getLastResponse(request.patient_request_recipients);
     const summary = getRecipientSummary(request.patient_request_recipients);
     const acceptedRecipients = (request.patient_request_recipients || [])
@@ -178,6 +234,7 @@ const PatientRequestsListLazy = ({
     const selectedRecipient = request.selected_pharmacy_id
       ? acceptedRecipients.find((recipient) => recipient.pharmacy_id === request.selected_pharmacy_id)
       : null;
+    const selectedPharmacy = selectedRecipient?.pharmacies || null;
 
     return (
       <Card
@@ -206,14 +263,17 @@ const PatientRequestsListLazy = ({
                 </span>
               </div>
             </div>
-            <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${isHistory ? 'bg-pharma-slate-grey/10 text-pharma-slate-grey border border-pharma-slate-grey/20' : statusConfig.className}`}>
+            <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${isHistory ? historyStatusConfig.className : statusConfig.className}`}>
               {isHistory ? historyStatusLabel : statusConfig.label}
             </span>
           </div>
           <div className="text-xs text-pharma-slate-grey space-y-1">
-            <p>{language === 'el' ? 'Δημιουργήθηκε' : 'Created'}: {formatDate(request.created_at)}</p>
             {isHistory ? (
               <>
+                <p>{language === 'el' ? 'Δημιουργήθηκε' : 'Created'}: {formatDate(request.created_at)}</p>
+                {request.executed_at && (
+                  <p>{language === 'el' ? 'Εκτελέστηκε' : 'Executed'}: {formatDate(request.executed_at)}</p>
+                )}
                 {request.cancelled_at && (
                   <p>{language === 'el' ? 'Ακυρώθηκε' : 'Cancelled'}: {formatDate(request.cancelled_at)}</p>
                 )}
@@ -226,9 +286,12 @@ const PatientRequestsListLazy = ({
                 )}
               </>
             ) : (
-              <p>
-                {t('requestExpiresLabel')} {formatDateTime(request.expires_at)} - {remainingLabel}
-              </p>
+              <>
+                <p>{language === 'el' ? 'Δημιουργήθηκε' : 'Created'}: {formatDate(request.created_at)}</p>
+                <p>
+                  {t('requestExpiresLabel')} {formatDateTime(request.expires_at)} - {remainingLabel}
+                </p>
+              </>
             )}
             <p>
               {formatTemplate(t('requestRoutedToCount'), {
@@ -250,15 +313,25 @@ const PatientRequestsListLazy = ({
                 {lastResponse.pharmacies?.name || t('pharmacy')} - {getRequestStatusConfig(lastResponse.status === 'rejected' ? 'declined' : lastResponse.status).label}
               </p>
             )}
-            {!isHistory && request.selected_pharmacy_id && selectedRecipient && (
+            {request.selected_pharmacy_id && selectedRecipient && (
               <div className="mt-2">
                 <p className="text-xs font-medium text-pharma-charcoal">
                   {language === 'el' ? 'Επιλεγμένο φαρμακείο' : 'Selected pharmacy'}
                 </p>
-                <p className="text-sm text-pharma-slate-grey flex items-center gap-2 mt-1">
-                  <MapPin className="w-3.5 h-3.5 text-pharma-teal" />
-                  {selectedRecipient.pharmacies?.name || t('pharmacy')}
-                </p>
+                <button
+                  type="button"
+                  className="mt-1 w-full text-left rounded-lg border border-pharma-grey-pale/70 bg-white px-3 py-2 hover:border-pharma-teal/40 hover:shadow-sm transition-all"
+                  onClick={() => {
+                    const details = buildSelectedPharmacyDetails(selectedPharmacy);
+                    if (details) setSelectedPharmacyDetails(details);
+                  }}
+                  data-testid={`selected-pharmacy-${request.id}`}
+                >
+                  <div className="text-sm text-pharma-slate-grey flex items-center gap-2">
+                    <MapPin className="w-3.5 h-3.5 text-pharma-teal" />
+                    {selectedPharmacy?.name || t('pharmacy')}
+                  </div>
+                </button>
               </div>
             )}
             {canChoosePharmacy && acceptedRecipients.length > 0 && (
@@ -395,6 +468,69 @@ const PatientRequestsListLazy = ({
       ) : (
         activeContent
       )}
+
+      <Dialog
+        open={Boolean(selectedPharmacyDetails)}
+        onOpenChange={(open) => {
+          if (!open) setSelectedPharmacyDetails(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {selectedPharmacyDetails?.name || t('pharmacy')}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 text-sm text-pharma-slate-grey">
+            {selectedPharmacyDetails?.address && (
+              <div className="flex items-start gap-2">
+                <MapPin className="w-4 h-4 text-pharma-teal mt-0.5" />
+                <span>{selectedPharmacyDetails.address}</span>
+              </div>
+            )}
+            {selectedPharmacyDetails?.phone && (
+              <div className="flex items-center gap-2">
+                <Phone className="w-4 h-4 text-pharma-teal" />
+                <a
+                  href={`tel:${selectedPharmacyDetails.phone}`}
+                  className="text-pharma-teal hover:underline"
+                >
+                  {selectedPharmacyDetails.phone}
+                </a>
+              </div>
+            )}
+            {selectedPharmacyDetails?.distanceKm != null && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-pharma-charcoal">
+                  {language === 'el' ? 'Απόσταση' : 'Distance'}:
+                </span>
+                <span>{formatDistance(selectedPharmacyDetails.distanceKm)}</span>
+              </div>
+            )}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setSelectedPharmacyDetails(null)}
+            >
+              {language === 'el' ? 'Κλείσιμο' : 'Close'}
+            </Button>
+            <Button
+              type="button"
+              className="gap-2"
+              onClick={() => openDirections(selectedPharmacyDetails)}
+              disabled={
+                !selectedPharmacyDetails?.address
+                && !(Number.isFinite(selectedPharmacyDetails?.latitude) && Number.isFinite(selectedPharmacyDetails?.longitude))
+              }
+            >
+              <Navigation className="w-4 h-4" />
+              {language === 'el' ? 'Οδηγίες' : 'Directions'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 };

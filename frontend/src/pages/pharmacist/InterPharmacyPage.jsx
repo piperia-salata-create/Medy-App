@@ -1,13 +1,14 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth, ROLES } from '../../contexts/AuthContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { supabase } from '../../lib/supabase';
+import { findPharmacyIdsByProductQuery, getProductSuggestionLabel } from '../../lib/inventory/searchInventory';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Textarea } from '../../components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-import { StatusBadge, VerifiedBadge } from '../../components/ui/status-badge';
+import { VerifiedBadge } from '../../components/ui/status-badge';
 import { SkeletonPharmacyCard, SkeletonList } from '../../components/ui/skeleton-loaders';
 import { EmptyState } from '../../components/ui/empty-states';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
@@ -20,7 +21,6 @@ import {
   Package,
   MapPin,
   Phone,
-  MessageSquare,
   CheckCircle2,
   Clock,
   Pill
@@ -41,6 +41,10 @@ export default function InterPharmacyPage() {
   const [requestMessage, setRequestMessage] = useState('');
   const [medicineName, setMedicineName] = useState('');
   const [sendingRequest, setSendingRequest] = useState(false);
+  const [productMatchPharmacyIds, setProductMatchPharmacyIds] = useState([]);
+  const [productSuggestions, setProductSuggestions] = useState([]);
+  const [productSearchLoading, setProductSearchLoading] = useState(false);
+  const [inventoryRefreshTick, setInventoryRefreshTick] = useState(0);
 
   // Redirect if not verified pharmacist
   useEffect(() => {
@@ -69,15 +73,18 @@ export default function InterPharmacyPage() {
   const fetchPharmacies = useCallback(async () => {
     if (!user) return;
     try {
+      const selectFields = 'id, owner_id, name, address, phone, hours, is_on_call, on_call_schedule, is_verified, latitude, longitude, created_at, updated_at';
       const { data, error } = await supabase
         .from('pharmacies')
-        .select('id, owner_id, name, address, phone, hours, is_on_call, on_call_schedule, is_verified, latitude, longitude, created_at, updated_at')
-        .eq('owner_id', user.id);
+        .select(selectFields)
+        .eq('is_verified', true)
+        .neq('owner_id', user.id);
 
       if (error) throw error;
-      setPharmacies(data || []);
+      setPharmacies((data || []).filter((pharmacy) => pharmacy?.owner_id !== user.id));
     } catch (error) {
       console.error('Error fetching pharmacies:', error);
+      setPharmacies([]);
     }
   }, [user]);
 
@@ -211,11 +218,74 @@ export default function InterPharmacyPage() {
     };
   }, [fetchRequests]);
 
+  useEffect(() => {
+    const inventoryChannel = supabase
+      .channel('inter_pharmacy_inventory_search')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'pharmacy_inventory' },
+        () => setInventoryRefreshTick((tick) => tick + 1)
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(inventoryChannel);
+    };
+  }, []);
+
+  useEffect(() => {
+    const query = searchQuery.trim();
+    const scopedIds = (pharmacies || []).map((p) => p.id).filter(Boolean);
+
+    if (!query || query.length < 2 || scopedIds.length === 0) {
+      setProductMatchPharmacyIds([]);
+      setProductSuggestions([]);
+      setProductSearchLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      setProductSearchLoading(true);
+      try {
+        const result = await findPharmacyIdsByProductQuery({
+          query,
+          pharmacyIds: scopedIds,
+          excludePharmacyIds: myPharmacy?.id ? [myPharmacy.id] : []
+        });
+        if (!cancelled) {
+          setProductMatchPharmacyIds(result?.pharmacyIds || []);
+          setProductSuggestions((result?.products || []).slice(0, 6));
+        }
+      } catch (error) {
+        console.error('B2B product search failed:', error);
+        if (!cancelled) {
+          setProductMatchPharmacyIds([]);
+          setProductSuggestions([]);
+        }
+      } finally {
+        if (!cancelled) setProductSearchLoading(false);
+      }
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [searchQuery, pharmacies, inventoryRefreshTick, myPharmacy]);
+
   // Filter pharmacies
-  const filteredPharmacies = pharmacies.filter(p =>
-    p.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    p.address?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredPharmacies = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return pharmacies.filter((p) => p?.owner_id !== user?.id);
+    const productMatchSet = new Set(productMatchPharmacyIds);
+    return pharmacies.filter((p) => {
+      if (p?.owner_id === user?.id) return false;
+      const textMatch = (p.name || '').toLowerCase().includes(query)
+        || (p.address || '').toLowerCase().includes(query);
+      return textMatch || productMatchSet.has(p.id);
+    });
+  }, [pharmacies, searchQuery, productMatchPharmacyIds, user]);
 
   // Separate incoming and outgoing requests
   const incomingRequests = requests.filter(r => r.to_pharmacy_id === myPharmacy?.id);
@@ -256,13 +326,48 @@ export default function InterPharmacyPage() {
           <div className="relative mb-4">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-pharma-slate-grey" />
             <Input
-              placeholder={language === 'el' ? 'Αναζήτηση φαρμακείου...' : 'Search pharmacy...'}
+              placeholder={language === 'el' ? 'Αναζήτηση φαρμακείου ή προϊόντος καταλόγου...' : 'Search pharmacy or catalog product...'}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="h-12 pl-12 rounded-2xl border-pharma-grey-pale"
               data-testid="pharmacy-search-input"
             />
           </div>
+          {searchQuery.trim().length >= 2 && productSuggestions.length > 0 && (
+            <div className="mb-3 rounded-xl border border-pharma-grey-pale bg-white p-2">
+              <p className="mb-1 text-xs text-pharma-slate-grey">
+                {language === 'el' ? 'Προτάσεις προϊόντων' : 'Product suggestions'}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {productSuggestions.map((product) => {
+                  const label = getProductSuggestionLabel(product, language);
+                  return (
+                    <button
+                      key={product.id}
+                      type="button"
+                      className="rounded-full border border-pharma-grey-pale bg-pharma-ice-blue px-3 py-1 text-xs text-pharma-charcoal hover:border-pharma-teal/40"
+                      onClick={() => setSearchQuery(label)}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {searchQuery.trim().length >= 2 && (
+            <p className="text-xs text-pharma-slate-grey mb-4">
+              {productSearchLoading
+                ? (language === 'el' ? 'Αναζήτηση συσχετίσεων προϊόντων...' : 'Searching product associations...')
+                : (productMatchPharmacyIds.length > 0
+                  ? (language === 'el'
+                    ? `Βρέθηκαν ${productMatchPharmacyIds.length} φαρμακεία που το διαχειρίζονται.`
+                    : `Found ${productMatchPharmacyIds.length} pharmacies associated with this product.`)
+                  : (language === 'el'
+                    ? 'Δεν βρέθηκαν συσχετισμένα φαρμακεία για αυτόν τον όρο.'
+                    : 'No associated pharmacies found for this query.'))}
+            </p>
+          )}
 
           {loading ? (
             <SkeletonList count={3} CardComponent={SkeletonPharmacyCard} />
@@ -366,12 +471,19 @@ export default function InterPharmacyPage() {
                       </div>
                       
                       <div className="flex items-center gap-2">
-                        <StatusBadge 
-                          status={
-                            request.status === 'accepted' ? 'available' :
-                            request.status === 'pending' ? 'limited' : 'unavailable'
-                          }
-                        />
+                        <span className={`rounded-full px-2 py-1 text-xs font-medium ${
+                          request.status === 'accepted'
+                            ? 'bg-pharma-sea-green/10 text-pharma-sea-green'
+                            : request.status === 'pending'
+                              ? 'bg-pharma-steel-blue/10 text-pharma-steel-blue'
+                              : 'bg-pharma-slate-grey/10 text-pharma-slate-grey'
+                        }`}>
+                          {request.status === 'accepted'
+                            ? (language === 'el' ? 'Αποδεκτό' : 'Accepted')
+                            : request.status === 'pending'
+                              ? (language === 'el' ? 'Εκκρεμεί' : 'Pending')
+                              : (language === 'el' ? 'Απορρίφθηκε' : 'Declined')}
+                        </span>
                         
                         {request.status === 'pending' && request.to_pharmacy_id === myPharmacy?.id && (
                           <div className="flex gap-2">

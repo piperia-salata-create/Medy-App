@@ -41,6 +41,58 @@ export default function NotificationsPage() {
     }
   };
 
+  const formatTemplate = (template, values) =>
+    template.replace(/\{(\w+)\}/g, (_, key) => (values?.[key] ?? ''));
+
+  const extractMedicineName = (text) => {
+    if (!text || typeof text !== 'string') return '';
+    const trimmed = text.trim();
+    const prefixes = ['Medicine:', 'Φάρμακο:', 'Φαρμακο:'];
+    const prefix = prefixes.find((item) => trimmed.startsWith(item));
+    if (!prefix) return '';
+    return trimmed.slice(prefix.length).trim();
+  };
+
+  const getLocalizedNotification = (notification) => {
+    const rawTitle = notification?.title || '';
+    const rawBody = notification?.body || notification?.message || '';
+    const data = notification?.data && typeof notification.data === 'object' ? notification.data : {};
+
+    if (notification?.type === 'patient_request_update') {
+      const status = data?.status;
+      let body = rawBody;
+      if (status === 'accepted') {
+        body = t('notificationRequestAcceptedBody');
+      } else if (status === 'rejected') {
+        body = t('notificationRequestRejectedBody');
+      } else if (status) {
+        body = t('notificationRequestStatusChangedBody');
+      }
+      return {
+        title: t('notificationRequestUpdateTitle') || rawTitle,
+        body: body || rawBody
+      };
+    }
+
+    if (notification?.type === 'patient_request') {
+      const medicine =
+        data?.medicine ||
+        data?.medicine_name ||
+        data?.medicine_query ||
+        extractMedicineName(rawBody);
+      const title = t('notificationNewPatientRequestTitle') || rawTitle;
+      if (medicine) {
+        return {
+          title,
+          body: formatTemplate(t('notificationNewPatientRequestBody'), { medicine })
+        };
+      }
+      return { title, body: rawBody };
+    }
+
+    return { title: rawTitle, body: rawBody };
+  };
+
   return (
     <div className="min-h-screen bg-pharma-ice-blue" data-testid="notifications-page">
       {/* Header */}
@@ -97,14 +149,13 @@ export default function NotificationsPage() {
           <EmptyState
             icon={Bell}
             title={t('noNotifications')}
-            description={language === 'el' 
-              ? 'Θα εμφανιστούν εδώ οι ειδοποιήσεις σας'
-              : 'Your notifications will appear here'}
+            description={t('notificationsEmptyDesc')}
           />
         ) : (
           <div className="space-y-3 page-enter">
             {notifications.map((notification) => {
               const isRead = notification.is_read ?? notification.read;
+              const { title, body } = getLocalizedNotification(notification);
               return (
                 <Card 
                   key={notification.id}
@@ -125,10 +176,10 @@ export default function NotificationsPage() {
                         <div className="flex items-start justify-between gap-2">
                           <div>
                             <h3 className={`text-sm ${!isRead ? 'font-semibold' : 'font-medium'} text-pharma-dark-slate`}>
-                              {notification.title}
+                              {title}
                             </h3>
                             <p className="text-sm text-pharma-slate-grey mt-1">
-                              {notification.body || notification.message}
+                              {body}
                             </p>
                             <p className="text-xs text-pharma-silver mt-2">
                               {new Date(notification.created_at).toLocaleString(

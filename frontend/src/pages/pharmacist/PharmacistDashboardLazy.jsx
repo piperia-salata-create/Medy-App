@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, Suspense, lazy } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -19,9 +19,6 @@ import {
   Users,
   Menu,
   X,
-  Phone,
-  MapPin,
-  Building2,
   Clock,
   Inbox,
   XCircle,
@@ -29,17 +26,15 @@ import {
   Send,
   ArrowRight,
   Package,
-  Shield
+  Boxes
 } from 'lucide-react';
-
-const PharmacistConnectionsCard = lazy(() => import('./PharmacistConnectionsCardLazy'));
 
 const isDev = process.env.NODE_ENV !== 'production';
 const DEBUG = localStorage.getItem('DEBUG_LOGS') === '1';
 
 export default function PharmacistDashboardLazy() {
   const { user, profile, signOut, isPharmacist, profileStatus } = useAuth();
-  const { language } = useLanguage();
+  const { t, language } = useLanguage();
   const { unreadCount } = useNotifications();
   const navigate = useNavigate();
   const isProfileReady = profileStatus === 'ready';
@@ -62,7 +57,6 @@ export default function PharmacistDashboardLazy() {
   const [incomingRequests, setIncomingRequests] = useState([]);
   const [incomingLoading, setIncomingLoading] = useState(false);
   const [deferMount, setDeferMount] = useState(false);
-  const [showAddressText, setShowAddressText] = useState(false);
   const [lightStageReady, setLightStageReady] = useState(false);
   const canLoadLight = isProfileReady && lightStageReady;
   const canLoadData = isProfileReady && deferMount && lightStageReady;
@@ -86,16 +80,6 @@ export default function PharmacistDashboardLazy() {
         cancelIdleCallback(id);
       }
     };
-  }, []);
-
-  useEffect(() => {
-    let id;
-    if (typeof requestAnimationFrame === 'function') {
-      id = requestAnimationFrame(() => setShowAddressText(true));
-      return () => cancelAnimationFrame(id);
-    }
-    id = setTimeout(() => setShowAddressText(true), 0);
-    return () => clearTimeout(id);
   }, []);
 
   useEffect(() => {
@@ -533,55 +517,7 @@ export default function PharmacistDashboardLazy() {
     return new Date(value).toLocaleString(language === 'el' ? 'el-GR' : 'en-US');
   };
 
-  const formatHours = (hoursValue) => {
-    if (!hoursValue || typeof hoursValue !== 'string') return null;
-    const labels = language === 'el'
-      ? { mon: 'Δευ', tue: 'Τρι', wed: 'Τετ', thu: 'Πεμ', fri: 'Παρ', sat: 'Σαβ', sun: 'Κυρ' }
-      : { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' };
-    const closedLabel = language === 'el' ? 'Κλειστό' : 'Closed';
-    const dayOrder = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-
-    let parsed;
-    try {
-      parsed = JSON.parse(hoursValue);
-    } catch (err) {
-      return hoursValue;
-    }
-    if (!parsed || typeof parsed !== 'object') return hoursValue;
-
-    const dayEntries = dayOrder.map((dayKey) => {
-      const entry = parsed[dayKey] || {};
-      const openValue = typeof entry.open === 'string' ? entry.open : '';
-      const closeValue = typeof entry.close === 'string' ? entry.close : '';
-      const hasTimes = openValue && closeValue;
-      const isClosed = entry.closed === true || !hasTimes;
-      return {
-        label: labels[dayKey],
-        value: isClosed ? closedLabel : `${openValue}–${closeValue}`
-      };
-    });
-
-    const groups = [];
-    dayEntries.forEach((entry, index) => {
-      if (groups.length === 0) {
-        groups.push({ start: index, end: index, value: entry.value });
-        return;
-      }
-      const last = groups[groups.length - 1];
-      if (last.value === entry.value) {
-        last.end = index;
-      } else {
-        groups.push({ start: index, end: index, value: entry.value });
-      }
-    });
-
-    return groups.map((group) => {
-      const startLabel = dayEntries[group.start].label;
-      const endLabel = dayEntries[group.end].label;
-      const range = group.start === group.end ? startLabel : `${startLabel}–${endLabel}`;
-      return `${range} ${group.value}`;
-    }).join(', ');
-  };
+  const isVerified = Boolean(pharmacy?.is_verified);
 
   return (
     <div className="min-h-screen bg-pharma-ice-blue" data-testid="pharmacist-dashboard">
@@ -604,6 +540,12 @@ export default function PharmacistDashboardLazy() {
 
           {/* Desktop Nav */}
           <nav className="hidden md:flex items-center gap-2">
+            <Link to="/pharmacist/inventory">
+              <Button variant="ghost" className="rounded-full gap-2" data-testid="nav-inventory-btn">
+                <Boxes className="w-4 h-4" />
+                {language === 'el' ? 'Απόθεμα' : 'Inventory'}
+              </Button>
+            </Link>
             <Link to="/pharmacist/connections">
               <Button variant="ghost" className="rounded-full gap-2" data-testid="nav-connections-btn">
                 <Users className="w-4 h-4" />
@@ -656,6 +598,12 @@ export default function PharmacistDashboardLazy() {
         {/* Mobile Menu */}
         {mobileMenuOpen && (
           <div className="md:hidden bg-white border-t border-pharma-grey-pale p-4 space-y-2 animate-slide-up">
+            <Link to="/pharmacist/inventory" onClick={() => setMobileMenuOpen(false)}>
+              <Button variant="ghost" className="w-full justify-start gap-3 rounded-xl">
+                <Boxes className="w-5 h-5" />
+                {language === 'el' ? 'Απόθεμα' : 'Inventory'}
+              </Button>
+            </Link>
             <Link to="/pharmacist/connections" onClick={() => setMobileMenuOpen(false)}>
               <Button variant="ghost" className="w-full justify-start gap-3 rounded-xl">
                 <Users className="w-5 h-5" />
@@ -692,28 +640,44 @@ export default function PharmacistDashboardLazy() {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
+      <main className="max-w-6xl mx-auto px-4 py-6 space-y-8">
         {loading ? (
-          <div className="grid md:grid-cols-2 gap-6">
-            {[1, 2, 3, 4].map(i => (
-              <Card key={i} className="bg-white rounded-2xl shadow-card border-pharma-grey-pale animate-pulse">
-                <CardContent className="p-6 h-40" />
-              </Card>
-            ))}
+          <div className="space-y-6">
+            <div className="grid md:grid-cols-2 gap-6">
+              {[1, 2].map(i => (
+                <Card key={`top-${i}`} className="bg-white rounded-2xl shadow-card border-pharma-grey-pale animate-pulse">
+                  <CardContent className="p-6 h-40" />
+                </Card>
+              ))}
+            </div>
+            <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale animate-pulse">
+              <CardContent className="p-6 h-72" />
+            </Card>
           </div>
         ) : (
           <>
-            <div className="grid md:grid-cols-2 gap-6">
+            <div className="grid gap-6 md:grid-cols-2 items-stretch">
             {/* STATUS CARD - On Duty Toggle */}
-            <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale page-enter" data-testid="status-card">
-              <CardHeader className="pb-2">
-                <CardTitle className="font-heading text-lg text-pharma-dark-slate flex items-center gap-2">
-                  <Clock className="w-5 h-5 text-pharma-teal" />
-                  {language === 'el' ? 'Κατάσταση Εφημερίας' : 'Duty Status'}
-                </CardTitle>
+            <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale page-enter h-full w-full" data-testid="status-card">
+              <CardHeader className="p-4 pb-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <CardTitle className="font-heading text-lg text-pharma-dark-slate flex items-center gap-2">
+                    <Clock className="w-5 h-5 text-pharma-teal" />
+                    {language === 'el' ? 'Κατάσταση Εφημερίας' : 'Duty Status'}
+                  </CardTitle>
+                  <span
+                    className={`text-xs font-medium px-2 py-1 rounded-full ${
+                      isVerified
+                        ? 'bg-pharma-sea-green/10 text-pharma-sea-green'
+                        : 'bg-pharma-coral/10 text-pharma-coral'
+                    }`}
+                  >
+                    {isVerified ? t('pharmacyVerifiedBadge') : t('pharmacyNotVerifiedBadge')}
+                  </span>
+                </div>
               </CardHeader>
-              <CardContent className="pt-2">
-                <div className="flex items-center justify-between">
+              <CardContent className="px-4 pb-4 pt-0 h-full">
+                <div className="flex items-center justify-between min-h-[92px]">
                   <div>
                     <p className="text-pharma-charcoal font-medium">
                       {isOnDuty 
@@ -738,105 +702,12 @@ export default function PharmacistDashboardLazy() {
               </CardContent>
             </Card>
 
-            {/* PHARMACY PROFILE CARD */}
-            <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale page-enter" style={{ animationDelay: '0.05s' }} data-testid="pharmacy-card">
-              <CardHeader className="pb-2">
-                <CardTitle className="font-heading text-lg text-pharma-dark-slate flex items-center gap-2">
-                  <Building2 className="w-5 h-5 text-pharma-royal-blue" />
-                  {language === 'el' ? 'Το Φαρμακείο Μου' : 'My Pharmacy'}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="pt-2">
-                {pharmacy ? (
-                  <div className="space-y-3">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="font-medium text-pharma-dark-slate">{pharmacy.name}</p>
-                        {pharmacy.is_verified && (
-                          <span className="inline-flex items-center gap-1 text-xs text-pharma-sea-green mt-1">
-                            <Shield className="w-3 h-3" />
-                            {language === 'el' ? 'Επαληθευμένο' : 'Verified'}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    {pharmacy.address && (
-                      // This block was LCP; we will defer it.
-                      showAddressText ? (
-                        <p className="text-sm text-pharma-slate-grey flex items-center gap-2">
-                          <MapPin className="w-4 h-4 flex-shrink-0" />
-                          {pharmacy.address}
-                        </p>
-                      ) : (
-                        <div className="flex items-center gap-2 min-h-[20px]">
-                          <MapPin className="w-4 h-4 flex-shrink-0 text-pharma-slate-grey/60" />
-                          <div className="h-4 w-56 rounded-full bg-pharma-grey-pale/70 animate-pulse" />
-                        </div>
-                      )
-                    )}
-                    {pharmacy.phone && (
-                      <p className="text-sm text-pharma-slate-grey flex items-center gap-2">
-                        <Phone className="w-4 h-4 flex-shrink-0" />
-                        {pharmacy.phone}
-                      </p>
-                    )}
-                    {formatHours(pharmacy.hours) && (
-                      <p className="text-sm text-pharma-slate-grey flex items-center gap-2">
-                        <Clock className="w-4 h-4 flex-shrink-0" />
-                        {formatHours(pharmacy.hours)}
-                      </p>
-                    )}
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      <Link to="/pharmacist/settings">
-                        <Button variant="outline" size="sm" className="rounded-full" data-testid="edit-pharmacy-btn">
-                          {language === 'el' ? 'Επεξεργασία' : 'Edit Profile'}
-                        </Button>
-                      </Link>
-                      {getMapsUrl(pharmacy) && (
-                        <a
-                          href={getMapsUrl(pharmacy)}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-block"
-                        >
-                          <Button variant="outline" size="sm" className="rounded-full" data-testid="open-maps-btn">
-                            {language === 'el' ? 'Άνοιγμα Χάρτη' : 'Open in Maps'}
-                          </Button>
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center py-4">
-                    <p className="text-pharma-slate-grey mb-3">
-                      {language === 'el' ? 'Δεν έχετε φαρμακείο' : 'No pharmacy registered'}
-                    </p>
-                    <Link to="/pharmacist/pharmacy/new">
-                      <Button className="rounded-full bg-pharma-teal hover:bg-pharma-teal/90" data-testid="add-pharmacy-btn">
-                        {language === 'el' ? 'Προσθήκη Φαρμακείου' : 'Add Pharmacy'}
-                      </Button>
-                    </Link>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* CONNECTIONS SUMMARY CARD */}
-            <Suspense fallback={<div className="h-56 rounded-2xl bg-white/70 shadow-sm animate-pulse" />}>
-              <PharmacistConnectionsCard
-                connections={connections}
-                userId={user?.id}
-                language={language}
-                onInvite={() => setInviteDialogOpen(true)}
-              />
-            </Suspense>
-
             {/* STOCK REQUESTS SUMMARY */}
-            <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale page-enter" style={{ animationDelay: '0.15s' }} data-testid="stock-requests-card">
+            <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale page-enter h-full" style={{ animationDelay: '0.15s' }} data-testid="stock-requests-card">
               <CardHeader className="pb-2">
                 <CardTitle className="font-heading text-lg text-pharma-dark-slate flex items-center gap-2">
                   <Package className="w-5 h-5 text-pharma-coral" />
-                  {language === 'el' ? 'Αιτήματα Αποθέματος' : 'Stock Requests'}
+                  {language === 'el' ? '\u0391\u03b9\u03c4\u03ae\u03bc\u03b1\u03c4\u03b1 \u0391\u03c0\u03bf\u03b8\u03ad\u03bc\u03b1\u03c4\u03bf\u03c2' : 'Stock Requests'}
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-2">
@@ -846,7 +717,7 @@ export default function PharmacistDashboardLazy() {
                       {stockRequests.pending}
                     </p>
                     <p className="text-sm text-pharma-slate-grey">
-                      {language === 'el' ? 'Εκκρεμή αιτήματα' : 'Pending requests'}
+                      {language === 'el' ? '\u0395\u03ba\u03ba\u03c1\u03b5\u03bc\u03ae \u03b1\u03b9\u03c4\u03ae\u03bc\u03b1\u03c4\u03b1' : 'Pending requests'}
                     </p>
                   </div>
                   <Package className="w-10 h-10 text-pharma-coral/30" />
@@ -865,13 +736,13 @@ export default function PharmacistDashboardLazy() {
                   </div>
                 ) : (
                   <p className="text-sm text-pharma-slate-grey text-center py-4">
-                    {language === 'el' ? 'Δεν υπάρχουν εκκρεμή αιτήματα' : 'No pending requests'}
+                    {language === 'el' ? '\u0394\u03b5\u03bd \u03c5\u03c0\u03ac\u03c1\u03c7\u03bf\u03c5\u03bd \u03b5\u03ba\u03ba\u03c1\u03b5\u03bc\u03ae \u03b1\u03b9\u03c4\u03ae\u03bc\u03b1\u03c4\u03b1' : 'No pending requests'}
                   </p>
                 )}
 
                 <Link to="/pharmacist/inter-pharmacy">
                   <Button variant="outline" className="w-full rounded-full gap-2" data-testid="view-requests-btn">
-                    {language === 'el' ? 'Διαχείριση Αιτημάτων' : 'Manage Requests'}
+                    {language === 'el' ? '\u0394\u03b9\u03b1\u03c7\u03b5\u03af\u03c1\u03b9\u03c3\u03b7 \u0391\u03b9\u03c4\u03b7\u03bc\u03ac\u03c4\u03c9\u03bd' : 'Manage Requests'}
                     <ArrowRight className="w-4 h-4" />
                   </Button>
                 </Link>
@@ -880,88 +751,90 @@ export default function PharmacistDashboardLazy() {
             </div>
 
             {/* INCOMING PATIENT REQUESTS */}
-            <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale page-enter" style={{ animationDelay: '0.2s' }} data-testid="incoming-patient-requests-card">
+            <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale page-enter w-full" style={{ animationDelay: '0.2s' }} data-testid="incoming-patient-requests-card">
               <CardHeader className="pb-2">
                 <CardTitle className="font-heading text-lg text-pharma-dark-slate flex items-center gap-2">
                   <Inbox className="w-5 h-5 text-pharma-teal" />
                   {language === 'el' ? 'Εισερχόμενα Αιτήματα Ασθενών' : 'Incoming Patient Requests'}
                 </CardTitle>
               </CardHeader>
-              <CardContent className="pt-2">
-                {!pharmacy ? (
-                  <p className="text-sm text-pharma-slate-grey">
-                    {language === 'el' ? 'Προσθέστε φαρμακείο για να λαμβάνετε αιτήματα.' : 'Add a pharmacy to receive requests.'}
-                  </p>
-                ) : incomingLoading ? (
-                  <p className="text-sm text-pharma-slate-grey">
-                    {language === 'el' ? 'Φόρτωση...' : 'Loading...'}
-                  </p>
-                ) : incomingRequests.length === 0 ? (
-                  <EmptyState
-                    icon={Inbox}
-                    title={language === 'el' ? 'Δεν υπάρχουν αιτήματα' : 'No incoming requests'}
-                    description={language === 'el' ? 'Θα εμφανίζονται εδώ όταν υπάρχουν.' : 'They will appear here when available.'}
-                  />
-                ) : (
-                  <div className="space-y-3">
-                    {incomingRequests.map((req) => {
-                      // Render-time guard
-                      if (!req.request) {
-                        if (DEBUG) {
-                          console.warn('[PharmacistDashboard] Skipping render of row with null request:', req.id);
+              <CardContent className="pt-2 flex flex-col min-h-0">
+                <div className="max-h-[420px] md:max-h-[520px] lg:max-h-[600px] overflow-y-auto pr-1">
+                  {!pharmacy ? (
+                    <p className="text-sm text-pharma-slate-grey">
+                      {language === 'el' ? 'Προσθέστε φαρμακείο για να λαμβάνετε αιτήματα.' : 'Add a pharmacy to receive requests.'}
+                    </p>
+                  ) : incomingLoading ? (
+                    <p className="text-sm text-pharma-slate-grey">
+                      {language === 'el' ? 'Φόρτωση...' : 'Loading...'}
+                    </p>
+                  ) : incomingRequests.length === 0 ? (
+                    <EmptyState
+                      icon={Inbox}
+                      title={language === 'el' ? 'Δεν υπάρχουν αιτήματα' : 'No incoming requests'}
+                      description={language === 'el' ? 'Θα εμφανίζονται εδώ όταν υπάρχουν.' : 'They will appear here when available.'}
+                    />
+                  ) : (
+                    <div className="space-y-3">
+                      {incomingRequests.map((req) => {
+                        // Render-time guard
+                        if (!req.request) {
+                          if (DEBUG) {
+                            console.warn('[PharmacistDashboard] Skipping render of row with null request:', req.id);
+                          }
+                          return null;
                         }
-                        return null;
-                      }
-                      return (
-                      <div key={req.id} className="p-4 rounded-xl border border-pharma-grey-pale bg-pharma-ice-blue/40">
-                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="font-medium text-pharma-dark-slate truncate">
-                              {req.request?.medicine_query || 'Request'}
-                            </p>
-                            {req.request?.notes && (
-                              <p className="text-sm text-pharma-slate-grey mt-1">
-                                {req.request?.notes}
+                        return (
+                        <div key={req.id} className="p-4 rounded-xl border border-pharma-grey-pale bg-pharma-ice-blue/40">
+                          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="font-medium text-pharma-dark-slate truncate">
+                                {req.request?.medicine_query || 'Request'}
                               </p>
-                            )}
-                            {req.request?.created_at && (
-                              <p className="text-xs text-pharma-silver mt-2">
-                                {new Date(req.request?.created_at).toLocaleString(language === 'el' ? 'el-GR' : 'en-US')}
-                              </p>
-                            )}
-                            {req.request?.expires_at && (
-                              <p className="text-xs text-pharma-slate-grey mt-1">
-                                {language === 'el' ? 'Λήγει:' : 'Expires'} {formatDateTime(req.request?.expires_at)} · {getRemainingLabel(req.request?.expires_at)}
-                              </p>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Button
-                              size="sm"
-                              className="rounded-full bg-pharma-sea-green hover:bg-pharma-sea-green/90 gap-1"
-                              onClick={() => respondToPatientRequest(req.id, 'accepted')}
-                              data-testid={`accept-patient-request-${req.id}`}
-                            >
-                              <CheckCircle2 className="w-4 h-4" />
-                              {language === 'el' ? 'Αποδοχή' : 'Accept'}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="rounded-full gap-1"
-                              onClick={() => respondToPatientRequest(req.id, 'rejected')}
-                              data-testid={`reject-patient-request-${req.id}`}
-                            >
-                              <XCircle className="w-4 h-4" />
-                              {language === 'el' ? 'Απόρριψη' : 'Reject'}
-                            </Button>
+                              {req.request?.notes && (
+                                <p className="text-sm text-pharma-slate-grey mt-1">
+                                  {req.request?.notes}
+                                </p>
+                              )}
+                              {req.request?.created_at && (
+                                <p className="text-xs text-pharma-silver mt-2">
+                                  {new Date(req.request?.created_at).toLocaleString(language === 'el' ? 'el-GR' : 'en-US')}
+                                </p>
+                              )}
+                              {req.request?.expires_at && (
+                                <p className="text-xs text-pharma-slate-grey mt-1">
+                                  {language === 'el' ? 'Λήγει:' : 'Expires'} {formatDateTime(req.request?.expires_at)} · {getRemainingLabel(req.request?.expires_at)}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                size="sm"
+                                className="rounded-full bg-pharma-sea-green hover:bg-pharma-sea-green/90 gap-1"
+                                onClick={() => respondToPatientRequest(req.id, 'accepted')}
+                                data-testid={`accept-patient-request-${req.id}`}
+                              >
+                                <CheckCircle2 className="w-4 h-4" />
+                                {language === 'el' ? 'Αποδοχή' : 'Accept'}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="rounded-full gap-1"
+                                onClick={() => respondToPatientRequest(req.id, 'rejected')}
+                                data-testid={`reject-patient-request-${req.id}`}
+                              >
+                                <XCircle className="w-4 h-4" />
+                                {language === 'el' ? 'Απόρριψη' : 'Reject'}
+                              </Button>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                      );
-                    })}
-                  </div>
-                )}
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
                 {pharmacy ? (
                   <Link to="/pharmacist/patient-requests">
                     <Button
@@ -1043,3 +916,4 @@ export default function PharmacistDashboardLazy() {
     </div>
   );
 }
+
