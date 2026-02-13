@@ -320,15 +320,15 @@ export default function LandingPage() {
               <span className="font-heading font-bold text-lg">{t('appName')}</span>
             </div>
             <div className="flex items-center gap-6">
-              <a href="#" className="text-white/70 hover:text-white text-sm transition-colors">
+              <Link to="/terms" className="text-white/70 hover:text-white text-sm transition-colors">
                 {language === 'el' ? 'Όροι Χρήσης' : 'Terms'}
-              </a>
-              <a href="#" className="text-white/70 hover:text-white text-sm transition-colors">
+              </Link>
+              <Link to="/privacy" className="text-white/70 hover:text-white text-sm transition-colors">
                 {language === 'el' ? 'Απόρρητο' : 'Privacy'}
-              </a>
-              <a href="#" className="text-white/70 hover:text-white text-sm transition-colors">
-                {language === 'el' ? 'Επικοινωνία' : 'Contact'}
-              </a>
+              </Link>
+              <Link to="/report-bug" className="text-white/70 hover:text-white text-sm transition-colors">
+                {language === 'el' ? 'Αναφορά Σφάλματος' : 'Report a Bug'}
+              </Link>
             </div>
             <p className="text-white/50 text-sm">
               © 2026 Medy App

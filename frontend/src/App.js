@@ -13,6 +13,9 @@ import { NotificationProvider } from "./contexts/NotificationContext";
 // Pages
 const LandingPage = lazy(() => import("./pages/LandingPage"));
 const LearnMorePage = lazy(() => import("./pages/LearnMorePage"));
+const TermsPage = lazy(() => import("./pages/TermsPage"));
+const PrivacyPage = lazy(() => import("./pages/PrivacyPage"));
+const ReportBugPage = lazy(() => import("./pages/ReportBugPage"));
 const SignInPage = lazy(() => import("./pages/auth/SignInPage"));
 const SignUpPage = lazy(() => import("./pages/auth/SignUpPage"));
 const VerifyOtpPage = lazy(() => import("./pages/auth/VerifyOtpPage"));
@@ -276,6 +279,21 @@ function AppRoutes() {
             <LearnMorePage />
           </PublicSuspense>
         </PublicRoute>
+      } />
+      <Route path="/terms" element={
+        <PublicSuspense>
+          <TermsPage />
+        </PublicSuspense>
+      } />
+      <Route path="/privacy" element={
+        <PublicSuspense>
+          <PrivacyPage />
+        </PublicSuspense>
+      } />
+      <Route path="/report-bug" element={
+        <PublicSuspense>
+          <ReportBugPage />
+        </PublicSuspense>
       } />
       <Route path="/signin" element={
         <PublicRoute>
