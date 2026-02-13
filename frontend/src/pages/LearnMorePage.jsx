@@ -213,7 +213,7 @@ export default function LearnMorePage() {
                   <Button
                     size="lg"
                     variant="outline"
-                    className="rounded-full border-white/70 text-white hover:bg-white/10 px-8 h-12 font-semibold"
+                    className="rounded-full bg-transparent border-white/70 text-white hover:bg-white/10 hover:text-white px-8 h-12 font-semibold"
                   >
                     {t('signIn')}
                   </Button>
