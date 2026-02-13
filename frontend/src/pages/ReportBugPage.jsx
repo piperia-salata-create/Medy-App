@@ -60,7 +60,7 @@ const copyByLanguage = {
     successTitle: 'Η αναφορά καταχωρήθηκε',
     successDesc: 'Ευχαριστούμε. Θα αξιολογήσουμε την αναφορά και θα προχωρήσουμε σε διορθώσεις.',
     backHome: 'Επιστροφή στην αρχική',
-    accessNote: 'Οι αναφορές αποθηκεύονται στα Netlify Forms του project για άμεση διαχείριση.'
+    accessNote: 'Οι αναφορές αποθηκεύονται στη φόρμα της εφαρμογής για άμεση διαχείριση.'
   },
   en: {
     title: 'Report a Bug',
@@ -102,7 +102,7 @@ const copyByLanguage = {
     successTitle: 'Report submitted',
     successDesc: 'Thank you. We will review your report and take action.',
     backHome: 'Back to home',
-    accessNote: 'Reports are stored in this project’s Netlify Forms inbox for direct triage.'
+    accessNote: 'Reports are stored in the application form for immediate management.'
   }
 };
 
