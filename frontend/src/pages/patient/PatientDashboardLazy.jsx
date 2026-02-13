@@ -647,7 +647,7 @@ export default function PatientDashboardLazy() {
     [language]
   );
 
-  const formatPharmacyHours = (hoursValue) => formatWeeklyHours(hoursValue);
+  const formatPharmacyHours = (hoursValue) => formatWeeklyHours(hoursValue, language);
 
   const getTargetPharmacyIds = (pharmacyList = []) => {
     const target = [];

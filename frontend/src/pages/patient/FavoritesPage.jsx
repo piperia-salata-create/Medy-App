@@ -8,6 +8,7 @@ import { Card, CardContent } from '../../components/ui/card';
 import { StatusBadge, OnCallBadge } from '../../components/ui/status-badge';
 import { SkeletonPharmacyCard, SkeletonList } from '../../components/ui/skeleton-loaders';
 import { EmptyState } from '../../components/ui/empty-states';
+import { formatWeeklyHours } from '../../lib/formatHours';
 import { toast } from 'sonner';
 import { 
   ArrowLeft, 
@@ -133,7 +134,9 @@ export default function FavoritesPage() {
           />
         ) : (
           <div className="space-y-4 page-enter">
-            {favorites.map((favorite) => (
+            {favorites.map((favorite) => {
+              const hoursLabel = formatWeeklyHours(favorite.pharmacies?.hours, language);
+              return (
               <Card 
                 key={favorite.id}
                 className="bg-white rounded-2xl shadow-card border-pharma-grey-pale hover:shadow-card-hover transition-all"
@@ -169,7 +172,7 @@ export default function FavoritesPage() {
                         {favorite.pharmacies?.hours && (
                           <div className="flex items-center gap-1 text-sm text-pharma-slate-grey">
                             <Clock className="w-4 h-4" />
-                            <span>{favorite.pharmacies.hours}</span>
+                            <span className="line-clamp-2 break-words">{hoursLabel}</span>
                           </div>
                         )}
                       </div>
@@ -201,7 +204,8 @@ export default function FavoritesPage() {
                   </div>
                 </CardContent>
               </Card>
-            ))}
+              );
+            })}
           </div>
         )}
       </main>
