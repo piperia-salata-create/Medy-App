@@ -1,10 +1,10 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase, getCurrentUser } from '../lib/supabase';
 
 const translations = {
   el: {
     // Common
-    appName: 'Pharma-Alert',
+    appName: 'Medy',
     loading: 'Φόρτωση...',
     save: 'Αποθήκευση',
     cancel: 'Ακύρωση',
@@ -94,8 +94,8 @@ const translations = {
     language: 'Γλώσσα',
     greek: 'Ελληνικά',
     english: 'Αγγλικά',
-    seniorMode: 'Λειτουργία Ηλικιωμένων',
-    seniorModeDesc: 'Προαιρετικό - Μεγαλύτερο κείμενο και απλοποιημένη διεπαφή',
+    seniorMode: 'Λειτουργία διευκόλυνσης ανάγνωσης',
+    seniorModeDesc: 'Προαιρετικό - Μεγαλύτερο κείμενο και βελτιωμένη αναγνωσιμότητα',
     pushNotifications: 'Ειδοποιήσεις Push',
     pushNotificationsNote: 'Οι ειδοποιήσεις push όταν η εφαρμογή είναι κλειστή απαιτούν μελλοντική έκδοση από το Store.',
     
@@ -136,11 +136,11 @@ const translations = {
     featureRealtimeDesc: 'Δείτε τη διαθεσιμότητα φαρμάκων άμεσα',
     featureAlerts: 'Έξυπνες Ειδοποιήσεις',
     featureAlertsDesc: 'Ενημερωθείτε όταν ένα φάρμακο γίνει διαθέσιμο',
-    featureSenior: 'Λειτουργία Ηλικιωμένων',
-    featureSeniorDesc: 'Απλοποιημένη διεπαφή με μεγάλα γράμματα',
+    featureSenior: 'Λειτουργία προσβασιμότητας ανάγνωσης',
+    featureSeniorDesc: 'Βελτιωμένη αναγνωσιμότητα με μεγαλύτερο κείμενο και καθαρότερη εμφάνιση',
 
     // Learn More Page
-    learnMoreTitle: 'Πώς λειτουργεί το Pharma-Alert',
+    learnMoreTitle: 'Πώς λειτουργεί το Medy',
     learnMoreSubtitle: 'Μια απλή διαδικασία για να βρείτε γρήγορα τα φάρμακα που χρειάζεστε.',
     learnMoreStepsTitle: 'Βήματα',
     learnMoreStepsSubtitle: 'Από την εγγραφή μέχρι την παραλαβή, όλα είναι ξεκάθαρα.',
@@ -164,7 +164,7 @@ const translations = {
     learnMoreBenefitFavoritesDesc: 'Αποθηκεύστε τα φαρμακεία που προτιμάτε για γρήγορη πρόσβαση.',
     learnMoreBenefitPrivacyTitle: 'Ιδιωτικότητα πρώτα',
     learnMoreBenefitPrivacyDesc: 'Τα δεδομένα σας μένουν ασφαλή και χρησιμοποιούνται μόνο για το αίτημά σας.',
-    learnMoreCtaTitle: 'Έτοιμοι να εγκαταστήσετε το Pharma-Alert;',
+    learnMoreCtaTitle: 'Έτοιμοι να εγκαταστήσετε το Medy;',
     learnMoreCtaSubtitle: 'Αποκτήστε γρήγορη πρόσβαση και ειδοποιήσεις σε πραγματικό χρόνο.',
     
     // Stock Request
@@ -228,7 +228,7 @@ const translations = {
   },
   en: {
     // Common
-    appName: 'Pharma-Alert',
+    appName: 'Medy',
     loading: 'Loading...',
     save: 'Save',
     cancel: 'Cancel',
@@ -318,8 +318,8 @@ const translations = {
     language: 'Language',
     greek: 'Greek',
     english: 'English',
-    seniorMode: 'Senior Mode',
-    seniorModeDesc: 'Optional - Larger text and simplified interface',
+    seniorMode: 'Reading Accessibility Mode',
+    seniorModeDesc: 'Optional - Larger text and improved readability',
     pushNotifications: 'Push Notifications',
     pushNotificationsNote: 'Push notifications when the app is closed require a future Store app version.',
     
@@ -360,11 +360,11 @@ const translations = {
     featureRealtimeDesc: 'See medicine availability instantly',
     featureAlerts: 'Smart Alerts',
     featureAlertsDesc: 'Get notified when a medicine becomes available',
-    featureSenior: 'Senior Mode',
-    featureSeniorDesc: 'Simplified interface with larger text',
+    featureSenior: 'Reading Accessibility',
+    featureSeniorDesc: 'Improved readability with larger text and clearer interface',
 
     // Learn More Page
-    learnMoreTitle: 'How Pharma-Alert works',
+    learnMoreTitle: 'How Medy works',
     learnMoreSubtitle: 'A simple flow to find the medicine you need faster.',
     learnMoreStepsTitle: 'Steps',
     learnMoreStepsSubtitle: 'From sign-in to pickup, everything is clear.',
@@ -388,7 +388,7 @@ const translations = {
     learnMoreBenefitFavoritesDesc: 'Keep preferred pharmacies close at hand.',
     learnMoreBenefitPrivacyTitle: 'Privacy-first',
     learnMoreBenefitPrivacyDesc: 'Your data stays protected and is used only for your request.',
-    learnMoreCtaTitle: 'Ready to install Pharma-Alert?',
+    learnMoreCtaTitle: 'Ready to install Medy?',
     learnMoreCtaSubtitle: 'Get quick access and real-time alerts.',
     
     // Stock Request
@@ -469,7 +469,7 @@ export const LanguageProvider = ({ children }) => {
   });
 
   const setLanguage = useCallback(async (lang) => {
-    setLanguageState(lang);
+    setLanguageState((prev) => (prev === lang ? prev : lang));
     localStorage.setItem('pharma-alert-language', lang);
     
     // Try to save to user profile if logged in
@@ -502,7 +502,7 @@ export const LanguageProvider = ({ children }) => {
           if (!data) return;
           
           if (data?.language) {
-            setLanguageState(data.language);
+            setLanguageState((prev) => (prev === data.language ? prev : data.language));
             localStorage.setItem('pharma-alert-language', data.language);
           }
         }
@@ -518,13 +518,13 @@ export const LanguageProvider = ({ children }) => {
     return translations[language]?.[key] || translations['en']?.[key] || key;
   }, [language]);
 
-  const value = {
+  const value = useMemo(() => ({
     language,
     setLanguage,
     t,
     isGreek: language === 'el',
     isEnglish: language === 'en'
-  };
+  }), [language, setLanguage, t]);
 
   return (
     <LanguageContext.Provider value={value}>

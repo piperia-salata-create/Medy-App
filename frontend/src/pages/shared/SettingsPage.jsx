@@ -109,7 +109,7 @@ export default function SettingsPage() {
                 </Select>
               </div>
 
-              {/* Senior Mode */}
+              {/* Reading Accessibility Mode */}
               <div className="flex items-center justify-between p-4 border-b border-pharma-grey-pale/50">
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 rounded-lg bg-pharma-sea-green/10 flex items-center justify-center">
@@ -165,7 +165,7 @@ export default function SettingsPage() {
 
         {/* App Version */}
         <p className="text-center text-xs text-pharma-silver pt-2">
-          Pharma-Alert v1.0.0
+          Medy v1.0.0
         </p>
       </main>
     </div>

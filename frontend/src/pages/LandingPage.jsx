@@ -331,7 +331,7 @@ export default function LandingPage() {
               </a>
             </div>
             <p className="text-white/50 text-sm">
-              © 2025 Pharma-Alert
+              © 2025 Medy
             </p>
           </div>
         </div>
