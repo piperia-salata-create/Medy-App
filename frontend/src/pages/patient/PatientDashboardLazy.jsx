@@ -1064,16 +1064,16 @@ export default function PatientDashboardLazy() {
                 icon={MapPin}
                 title={
                   !hasLocation
-                    ? (language === 'el' ? 'Ξ‘Ο€Ξ±ΞΉΟ„ΞµΞ―Ο„Ξ±ΞΉ Ο„ΞΏΟ€ΞΏΞΈΞµΟƒΞ―Ξ±' : 'Location required')
-                    : (language === 'el' ? 'ΞΟΞ―ΟƒΟ„Ξµ Ξ±ΞΊΟ„Ξ―Ξ½Ξ± Ξ±Ξ½Ξ±Ξ¶Ξ®Ο„Ξ·ΟƒΞ·Ο‚' : 'Set search radius')
+                    ? (language === 'el' ? 'Απαιτείται τοποθεσία' : 'Location required')
+                    : (language === 'el' ? 'Ορίστε ακτίνα αναζήτησης' : 'Set search radius')
                 }
                 description={
                   !hasLocation
                     ? (language === 'el'
-                      ? 'Ξ•Ξ½ΞµΟΞ³ΞΏΟ€ΞΏΞΉΞ®ΟƒΟ„Ξµ Ο„Ξ·Ξ½ Ο„ΞΏΟ€ΞΏΞΈΞµΟƒΞ―Ξ± Ξ³ΞΉΞ± Ξ½Ξ± Ξ΄ΞµΞ―Ο„Ξµ ΞΊΞΏΞ½Ο„ΞΉΞ½Ξ¬ Ο†Ξ±ΟΞΌΞ±ΞΊΞµΞ―Ξ±.'
+                      ? 'Ενεργοποιήστε την τοποθεσία για να δείτε κοντινά φαρμακεία.'
                       : 'Enable location to see nearby pharmacies.')
                     : (language === 'el'
-                      ? 'ΞΟΞ―ΟƒΟ„Ξµ Ο„Ξ·Ξ½ Ξ±ΞΊΟ„Ξ―Ξ½Ξ± Ξ±Ξ½Ξ±Ξ¶Ξ®Ο„Ξ·ΟƒΞ·Ο‚ Ξ³ΞΉΞ± Ξ½Ξ± ΞµΞΌΟ†Ξ±Ξ½ΞΉΟƒΟ„ΞΏΟΞ½ ΞΊΞΏΞ½Ο„ΞΉΞ½Ξ¬ Ο†Ξ±ΟΞΌΞ±ΞΊΞµΞ―Ξ±.'
+                      ? 'Ορίστε την ακτίνα αναζήτησης για να εμφανιστούν κοντινά φαρμακεία.'
                       : 'Set your search radius to see nearby pharmacies.')
                 }
                 action={
@@ -1083,8 +1083,8 @@ export default function PatientDashboardLazy() {
                 }
                 actionLabel={
                   !hasLocation
-                    ? (language === 'el' ? 'Ξ§ΟΞ®ΟƒΞ· Ο„ΞΏΟ€ΞΏΞΈΞµΟƒΞ―Ξ±Ο‚' : 'Use location')
-                    : (language === 'el' ? 'Ξ΅Ο…ΞΈΞΌΞ―ΟƒΞµΞΉΟ‚' : 'Settings')
+                    ? (language === 'el' ? 'Χρήση τοποθεσίας' : 'Use location')
+                    : (language === 'el' ? 'Ρυθμίσεις' : 'Settings')
                 }
               />
             ) : (
