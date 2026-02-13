@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -31,48 +31,155 @@ import {
 
 const isDev = process.env.NODE_ENV !== 'production';
 const DEBUG = localStorage.getItem('DEBUG_LOGS') === '1';
+const pharmacistDashboardDataCache = new Map();
+const pharmacistDashboardUiCache = {
+  deferMountReady: false,
+  lightStageReady: false
+};
+
+const areConnectionSummariesEqual = (prev = {}, next = {}) => {
+  if (prev.incoming !== next.incoming) return false;
+  if (prev.outgoing !== next.outgoing) return false;
+  if (prev.accepted !== next.accepted) return false;
+  const prevRecent = Array.isArray(prev.recentAccepted) ? prev.recentAccepted : [];
+  const nextRecent = Array.isArray(next.recentAccepted) ? next.recentAccepted : [];
+  if (prevRecent.length !== nextRecent.length) return false;
+  for (let i = 0; i < prevRecent.length; i += 1) {
+    const p = prevRecent[i];
+    const n = nextRecent[i];
+    if ((p?.id || '') !== (n?.id || '')) return false;
+    if ((p?.status || '') !== (n?.status || '')) return false;
+    if ((p?.updated_at || '') !== (n?.updated_at || '')) return false;
+  }
+  return true;
+};
+
+const buildIncomingRecipientSignature = (row = {}) => {
+  const req = row.request ?? row.patient_requests ?? {};
+  return [
+    row.id || '',
+    row.status || '',
+    req.id || '',
+    req.status || '',
+    req.expires_at || '',
+    req.selected_pharmacy_id || '',
+    req.created_at || '',
+    req.medicine_query || '',
+    req.notes || ''
+  ].join('|');
+};
+
+const stabilizeIncomingRecipients = (prevList = [], nextList = []) => {
+  const prevMap = new Map(
+    prevList.map((item) => [
+      item?.id,
+      { item, sig: buildIncomingRecipientSignature(item) }
+    ])
+  );
+
+  const result = nextList.map((item) => {
+    const prevEntry = prevMap.get(item?.id);
+    const sigNew = buildIncomingRecipientSignature(item);
+    if (prevEntry && prevEntry.sig === sigNew) {
+      return prevEntry.item;
+    }
+    return item;
+  });
+
+  if (prevList.length === result.length && result.every((item, index) => item === prevList[index])) {
+    return prevList;
+  }
+
+  return result;
+};
 
 export default function PharmacistDashboardLazy() {
   const { user, profile, signOut, isPharmacist, profileStatus } = useAuth();
+  const userId = user?.id || null;
+  const profileId = profile?.id || null;
   const { t, language } = useLanguage();
   const { unreadCount } = useNotifications();
   const navigate = useNavigate();
   const isProfileReady = profileStatus === 'ready';
+  const cachedData = userId ? pharmacistDashboardDataCache.get(userId) : null;
 
   // State
-  const [pharmacy, setPharmacy] = useState(null);
-  const [isOnDuty, setIsOnDuty] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [pharmacy, setPharmacy] = useState(cachedData?.pharmacy || null);
+  const pharmacyId = pharmacy?.id || null;
+  const [isOnDuty, setIsOnDuty] = useState(Boolean(cachedData?.isOnDuty));
+  const [loading, setLoading] = useState(() => !cachedData);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [nowTick, setNowTick] = useState(Date.now());
   
   // Connections state
-  const [connections, setConnections] = useState({ incoming: 0, outgoing: 0, accepted: 0, recentAccepted: [] });
+  const [connections, setConnections] = useState(cachedData?.connections || { incoming: 0, outgoing: 0, accepted: 0, recentAccepted: [] });
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [sendingInvite, setSendingInvite] = useState(false);
   
   // Stock requests state
-  const [stockRequests, setStockRequests] = useState({ pending: 0, recent: [] });
-  const [incomingRequests, setIncomingRequests] = useState([]);
-  const [incomingLoading, setIncomingLoading] = useState(false);
-  const [deferMount, setDeferMount] = useState(false);
-  const [lightStageReady, setLightStageReady] = useState(false);
+  const [stockRequests, setStockRequests] = useState(cachedData?.stockRequests || { pending: 0, recent: [] });
+  const [incomingRequests, setIncomingRequests] = useState(cachedData?.incomingRequests || []);
+  const [incomingInitialLoading, setIncomingInitialLoading] = useState(false);
+  const [incomingRefreshing, setIncomingRefreshing] = useState(false);
+  const [deferMount, setDeferMount] = useState(pharmacistDashboardUiCache.deferMountReady);
+  const [lightStageReady, setLightStageReady] = useState(pharmacistDashboardUiCache.lightStageReady);
   const canLoadLight = isProfileReady && lightStageReady;
   const canLoadData = isProfileReady && deferMount && lightStageReady;
+  const incomingLoadedRef = useRef(false);
+  const incomingRequestsRef = useRef([]);
+  const connectionRefreshTimerRef = useRef(null);
+  const initialDataLoadedRef = useRef(false);
+
+  useEffect(() => {
+    const userCache = userId ? pharmacistDashboardDataCache.get(userId) : null;
+    if (userCache) {
+      setPharmacy(userCache.pharmacy || null);
+      setIsOnDuty(Boolean(userCache.isOnDuty));
+      setConnections(userCache.connections || { incoming: 0, outgoing: 0, accepted: 0, recentAccepted: [] });
+      setStockRequests(userCache.stockRequests || { pending: 0, recent: [] });
+      setIncomingRequests(userCache.incomingRequests || []);
+      initialDataLoadedRef.current = true;
+      setLoading(false);
+      return;
+    }
+
+    setPharmacy(null);
+    setIsOnDuty(false);
+    setConnections({ incoming: 0, outgoing: 0, accepted: 0, recentAccepted: [] });
+    setStockRequests({ pending: 0, recent: [] });
+    setIncomingRequests([]);
+    initialDataLoadedRef.current = false;
+    setLoading(Boolean(userId));
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) return;
+    pharmacistDashboardDataCache.set(userId, {
+      pharmacy,
+      isOnDuty,
+      connections,
+      stockRequests,
+      incomingRequests
+    });
+  }, [userId, pharmacy, isOnDuty, connections, stockRequests, incomingRequests]);
 
   // Redirect if not pharmacist
   useEffect(() => {
     if (!isProfileReady) return;
-    if (profile && !isPharmacist()) {
+    if (profileId && !isPharmacist()) {
       navigate('/patient');
     }
-  }, [profile, isPharmacist, navigate, isProfileReady]);
+  }, [profileId, isPharmacist, navigate, isProfileReady]);
 
   useEffect(() => {
+    if (deferMount) return;
+    const markReady = () => {
+      pharmacistDashboardUiCache.deferMountReady = true;
+      setDeferMount(true);
+    };
     const id = typeof requestIdleCallback === 'function'
-      ? requestIdleCallback(() => setDeferMount(true))
-      : setTimeout(() => setDeferMount(true), 0);
+      ? requestIdleCallback(markReady)
+      : setTimeout(markReady, 0);
     return () => {
       if (typeof id === 'number') {
         clearTimeout(id);
@@ -80,23 +187,34 @@ export default function PharmacistDashboardLazy() {
         cancelIdleCallback(id);
       }
     };
-  }, []);
+  }, [deferMount]);
 
   useEffect(() => {
     if (!isProfileReady) {
       setLightStageReady(false);
       return;
     }
-    const timer = setTimeout(() => setLightStageReady(true), 200);
+    if (lightStageReady) return;
+    if (pharmacistDashboardUiCache.lightStageReady) {
+      setLightStageReady(true);
+      return;
+    }
+    const timer = setTimeout(() => {
+      pharmacistDashboardUiCache.lightStageReady = true;
+      setLightStageReady(true);
+    }, 200);
     return () => clearTimeout(timer);
-  }, [isProfileReady]);
+  }, [isProfileReady, lightStageReady]);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setNowTick(Date.now());
-    }, 60000);
-    return () => clearInterval(interval);
-  }, []);
+    incomingLoadedRef.current = false;
+    setIncomingInitialLoading(false);
+    setIncomingRefreshing(false);
+  }, [pharmacyId]);
+
+  useEffect(() => {
+    incomingRequestsRef.current = incomingRequests;
+  }, [incomingRequests]);
 
   useEffect(() => {
     if (!isProfileReady) return;
@@ -108,12 +226,12 @@ export default function PharmacistDashboardLazy() {
   // TODO: Handle multiple pharmacies - currently using first one
   const fetchPharmacy = useCallback(async () => {
     if (!canLoadLight) return null;
-    if (!user) return;
+    if (!userId) return;
     try {
       const { data, error } = await supabase
         .from('pharmacies')
         .select('*')
-        .eq('owner_id', user.id)
+        .eq('owner_id', userId)
         .limit(1)
         .maybeSingle();
 
@@ -132,12 +250,12 @@ export default function PharmacistDashboardLazy() {
       console.error('Error fetching pharmacy:', error);
       return null;
     }
-  }, [canLoadLight, user]);
+  }, [canLoadLight, userId]);
 
   // Fetch connections summary
   const fetchConnections = useCallback(async () => {
     if (!canLoadLight) return;
-    if (!user) return;
+    if (!userId) return;
     try {
       const { data, error } = await supabase
         .from('pharmacist_connections')
@@ -150,35 +268,36 @@ export default function PharmacistDashboardLazy() {
             id, full_name, pharmacy_name
           )
         `)
-        .or(`requester_pharmacist_id.eq.${user.id},target_pharmacist_id.eq.${user.id}`);
+        .or(`requester_pharmacist_id.eq.${userId},target_pharmacist_id.eq.${userId}`);
 
       if (error) throw error;
 
       const all = data || [];
-      const incoming = all.filter(c => c.status === 'pending' && c.target_pharmacist_id === user.id).length;
-      const outgoing = all.filter(c => c.status === 'pending' && c.requester_pharmacist_id === user.id).length;
+      const incoming = all.filter(c => c.status === 'pending' && c.target_pharmacist_id === userId).length;
+      const outgoing = all.filter(c => c.status === 'pending' && c.requester_pharmacist_id === userId).length;
       const acceptedList = all.filter(c => c.status === 'accepted');
       
-      setConnections({
+      const nextSummary = {
         incoming,
         outgoing,
         accepted: acceptedList.length,
         recentAccepted: acceptedList.slice(0, 3)
-      });
+      };
+      setConnections((prev) => (areConnectionSummariesEqual(prev, nextSummary) ? prev : nextSummary));
     } catch (error) {
       console.error('Error fetching connections:', error);
     }
-  }, [canLoadLight, user]);
+  }, [canLoadLight, userId]);
 
   // Fetch stock requests
   const fetchStockRequests = useCallback(async () => {
     if (!canLoadData) return;
-    if (!pharmacy) return;
+    if (!pharmacyId) return;
     try {
       const { data, error } = await supabase
         .from('stock_requests')
         .select('*')
-        .eq('to_pharmacy_id', pharmacy.id)
+        .eq('to_pharmacy_id', pharmacyId)
         .eq('status', 'pending')
         .order('created_at', { ascending: false })
         .limit(5);
@@ -192,13 +311,18 @@ export default function PharmacistDashboardLazy() {
     } catch (error) {
       console.error('Error fetching stock requests:', error);
     }
-  }, [canLoadData, pharmacy]);
+  }, [canLoadData, pharmacyId]);
 
   // Fetch incoming patient requests
-  const fetchIncomingRequests = useCallback(async () => {
+  const fetchIncomingRequests = useCallback(async (options = {}) => {
     if (!canLoadData) return;
-    if (!pharmacy) return;
-    setIncomingLoading(true);
+    if (!pharmacyId) return;
+    const now = Date.now();
+    const isInitialLoad = !incomingLoadedRef.current;
+    let didChange = false;
+    if (isInitialLoad && options?.silent !== true) {
+      setIncomingInitialLoading(true);
+    }
     try {
       const nowIso = new Date().toISOString();
       const { data, error } = await supabase
@@ -221,17 +345,16 @@ export default function PharmacistDashboardLazy() {
             notes
           )
         `)
-        .eq('pharmacy_id', pharmacy.id)
+        .eq('pharmacy_id', pharmacyId)
         .eq('status', 'pending')
         .gt('patient_requests.expires_at', nowIso)
-        .or(`selected_pharmacy_id.is.null,selected_pharmacy_id.eq.${pharmacy.id}`, { foreignTable: 'patient_requests' })
+        .or(`selected_pharmacy_id.is.null,selected_pharmacy_id.eq.${pharmacyId}`, { foreignTable: 'patient_requests' })
         .order('updated_at', { ascending: false });
 
       if (error) throw error;
       if (DEBUG && data && data.length > 0) {
         console.log('[PharmacistDashboard] sample recipient row', data[0]);
       }
-      const now = Date.now();
       const filtered = (data || []).filter((recipient) => {
         // Guard: exclude if request is null
         const req = recipient.request ?? recipient.patient_requests ?? null;
@@ -247,7 +370,7 @@ export default function PharmacistDashboardLazy() {
         const expiresAt = req.expires_at;
         const selectedId = req.selected_pharmacy_id ?? null;
 
-        if (selectedId && selectedId !== pharmacy.id) return false;
+        if (selectedId && selectedId !== pharmacyId) return false;
 
         // isCancelled: check request.status OR recipient.status
         const isCancelled = requestStatus === 'cancelled' || recipientStatus === 'cancelled';
@@ -263,13 +386,37 @@ export default function PharmacistDashboardLazy() {
 
         return true;
       });
-      setIncomingRequests(filtered);
+      filtered.sort((a, b) => {
+        const aReq = a?.request ?? a?.patient_requests ?? {};
+        const bReq = b?.request ?? b?.patient_requests ?? {};
+        const aRaw = new Date(aReq?.created_at || 0).getTime();
+        const bRaw = new Date(bReq?.created_at || 0).getTime();
+        const aTime = Number.isFinite(aRaw) ? aRaw : 0;
+        const bTime = Number.isFinite(bRaw) ? bRaw : 0;
+        if (bTime !== aTime) return bTime - aTime;
+        return String(a?.id || '').localeCompare(String(b?.id || ''));
+      });
+
+      const prevList = incomingRequestsRef.current || [];
+      const stabilized = stabilizeIncomingRecipients(prevList, filtered);
+      didChange = stabilized !== prevList;
+
+      if (!isInitialLoad && didChange) {
+        setIncomingRefreshing(true);
+      }
+
+      setIncomingRequests(stabilized);
+      incomingRequestsRef.current = stabilized;
+      incomingLoadedRef.current = true;
     } catch (error) {
       console.error('Error fetching incoming requests:', error);
     } finally {
-      setIncomingLoading(false);
+      setIncomingInitialLoading(false);
+      if (!isInitialLoad && didChange) {
+        setIncomingRefreshing(false);
+      }
     }
-  }, [canLoadData, pharmacy]);
+  }, [canLoadData, pharmacyId]);
 
   // Toggle on-duty status
   const toggleOnDuty = async (checked) => {
@@ -327,7 +474,7 @@ export default function PharmacistDashboardLazy() {
         return;
       }
 
-      if (targetProfile.id === user.id) {
+      if (targetProfile.id === userId) {
         toast.error(language === 'el' ? 'Δεν μπορείτε να προσκαλέσετε τον εαυτό σας' : 'Cannot invite yourself');
         return;
       }
@@ -337,8 +484,8 @@ export default function PharmacistDashboardLazy() {
         .from('pharmacist_connections')
         .select('id, status')
         .or(
-          `and(requester_pharmacist_id.eq.${user.id},target_pharmacist_id.eq.${targetProfile.id}),` +
-          `and(requester_pharmacist_id.eq.${targetProfile.id},target_pharmacist_id.eq.${user.id})`
+          `and(requester_pharmacist_id.eq.${userId},target_pharmacist_id.eq.${targetProfile.id}),` +
+          `and(requester_pharmacist_id.eq.${targetProfile.id},target_pharmacist_id.eq.${userId})`
         )
         .maybeSingle();
 
@@ -349,9 +496,9 @@ export default function PharmacistDashboardLazy() {
 
       // Create invite
       const { error: insertError } = await supabase
-        .from('pharmacist_connections')
-        .insert({
-          requester_pharmacist_id: user.id,
+          .from('pharmacist_connections')
+          .insert({
+          requester_pharmacist_id: userId,
           target_pharmacist_id: targetProfile.id,
           status: 'pending'
         });
@@ -398,7 +545,7 @@ export default function PharmacistDashboardLazy() {
           : (language === 'el' ? 'Αίτημα απορρίφθηκε' : 'Request rejected')
       );
 
-      fetchIncomingRequests();
+      fetchIncomingRequests({ silent: true });
     } catch (error) {
       console.error('Error responding to patient request:', error);
       toast.error(language === 'el' ? 'Σφάλμα ενημέρωσης' : 'Update failed');
@@ -414,58 +561,85 @@ export default function PharmacistDashboardLazy() {
   // Initial data load
   useEffect(() => {
     const loadData = async () => {
-      setLoading(true);
+      const isInitialLoad = !initialDataLoadedRef.current;
+      if (isInitialLoad) {
+        setLoading(true);
+      }
       await fetchPharmacy();
       await fetchConnections();
-      setLoading(false);
+      if (isInitialLoad) {
+        initialDataLoadedRef.current = true;
+        setLoading(false);
+      }
     };
     
-    if (user && canLoadLight) {
+    if (userId && canLoadLight) {
       loadData();
     }
-  }, [user, fetchPharmacy, fetchConnections, canLoadLight]);
+  }, [userId, fetchPharmacy, fetchConnections, canLoadLight]);
 
   // Fetch stock requests after pharmacy is loaded
   useEffect(() => {
     if (!canLoadData) return;
-    if (pharmacy) {
+    if (pharmacyId) {
       fetchStockRequests();
       fetchIncomingRequests();
     }
-  }, [pharmacy, fetchStockRequests, fetchIncomingRequests, canLoadData]);
+  }, [pharmacyId, fetchStockRequests, fetchIncomingRequests, canLoadData]);
 
   // Realtime subscriptions
   useEffect(() => {
     if (!canLoadData) return;
-    if (!user) return;
+    if (!userId) return;
+
+    const scheduleConnectionsRefresh = () => {
+      if (connectionRefreshTimerRef.current) return;
+      connectionRefreshTimerRef.current = setTimeout(() => {
+        connectionRefreshTimerRef.current = null;
+        fetchConnections();
+      }, 250);
+    };
 
     const connectionsChannel = supabase
-      .channel('pharmacist_connections_realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'pharmacist_connections' }, fetchConnections)
+      .channel(`pharmacist_connections_realtime:${userId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'pharmacist_connections', filter: `requester_pharmacist_id=eq.${userId}` },
+        scheduleConnectionsRefresh
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'pharmacist_connections', filter: `target_pharmacist_id=eq.${userId}` },
+        scheduleConnectionsRefresh
+      )
       .subscribe();
 
     return () => {
+      if (connectionRefreshTimerRef.current) {
+        clearTimeout(connectionRefreshTimerRef.current);
+        connectionRefreshTimerRef.current = null;
+      }
       supabase.removeChannel(connectionsChannel);
     };
-  }, [user, fetchConnections, canLoadData]);
+  }, [userId, fetchConnections, canLoadData]);
 
   useEffect(() => {
     if (!canLoadData) return;
-    if (!pharmacy) return;
+    if (!pharmacyId) return;
 
     const requestsChannel = supabase
-      .channel(`patient_request_recipients:${pharmacy.id}`)
+      .channel(`patient_request_recipients:${pharmacyId}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'patient_request_recipients', filter: `pharmacy_id=eq.${pharmacy.id}` },
-        () => fetchIncomingRequests()
+        { event: '*', schema: 'public', table: 'patient_request_recipients', filter: `pharmacy_id=eq.${pharmacyId}` },
+        () => fetchIncomingRequests({ silent: true })
       )
       .subscribe();
 
     return () => {
       supabase.removeChannel(requestsChannel);
     };
-  }, [pharmacy, fetchIncomingRequests, canLoadData]);
+  }, [pharmacyId, fetchIncomingRequests, canLoadData]);
 
   if (!isProfileReady || !deferMount) {
     return (
@@ -497,7 +671,7 @@ export default function PharmacistDashboardLazy() {
 
   const getRemainingLabel = (expiresAt) => {
     if (!expiresAt) return '';
-    const diffMs = new Date(expiresAt).getTime() - nowTick;
+    const diffMs = new Date(expiresAt).getTime() - Date.now();
     if (diffMs <= 0) return language === 'el' ? 'Έληξε' : 'Expired';
     const totalMinutes = Math.ceil(diffMs / 60000);
     const hours = Math.floor(totalMinutes / 60);
@@ -644,8 +818,8 @@ export default function PharmacistDashboardLazy() {
         {loading ? (
           <div className="space-y-6">
             <div className="grid md:grid-cols-2 gap-6">
-              {[1, 2].map(i => (
-                <Card key={`top-${i}`} className="bg-white rounded-2xl shadow-card border-pharma-grey-pale animate-pulse">
+              {['top-card-1', 'top-card-2'].map((cardKey) => (
+                <Card key={cardKey} className="bg-white rounded-2xl shadow-card border-pharma-grey-pale animate-pulse">
                   <CardContent className="p-6 h-40" />
                 </Card>
               ))}
@@ -759,12 +933,22 @@ export default function PharmacistDashboardLazy() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-2 flex flex-col min-h-0">
-                <div className="max-h-[420px] md:max-h-[520px] lg:max-h-[600px] overflow-y-auto pr-1">
+                <div className="mb-2 min-h-[18px] text-xs text-pharma-slate-grey">
+                  {incomingRefreshing ? (
+                    language === 'el' ? 'Γίνεται ενημέρωση...' : 'Updating...'
+                  ) : (
+                    <span className="invisible">
+                      {language === 'el' ? 'Γίνεται ενημέρωση...' : 'Updating...'}
+                    </span>
+                  )}
+                </div>
+                <div className="paint-stable">
+                  <div className="incoming-scroll max-h-[420px] md:max-h-[520px] lg:max-h-[600px] overflow-y-auto pr-1">
                   {!pharmacy ? (
                     <p className="text-sm text-pharma-slate-grey">
                       {language === 'el' ? 'Προσθέστε φαρμακείο για να λαμβάνετε αιτήματα.' : 'Add a pharmacy to receive requests.'}
                     </p>
-                  ) : incomingLoading ? (
+                  ) : (incomingInitialLoading && incomingRequests.length === 0) ? (
                     <p className="text-sm text-pharma-slate-grey">
                       {language === 'el' ? 'Φόρτωση...' : 'Loading...'}
                     </p>
@@ -803,7 +987,7 @@ export default function PharmacistDashboardLazy() {
                               )}
                               {req.request?.expires_at && (
                                 <p className="text-xs text-pharma-slate-grey mt-1">
-                                  {language === 'el' ? 'Λήγει:' : 'Expires'} {formatDateTime(req.request?.expires_at)} · {getRemainingLabel(req.request?.expires_at)}
+                                  {language === 'el' ? 'Λήγει:' : 'Expires'} {formatDateTime(req.request?.expires_at)} Β· {getRemainingLabel(req.request?.expires_at)}
                                 </p>
                               )}
                             </div>
@@ -834,6 +1018,7 @@ export default function PharmacistDashboardLazy() {
                       })}
                     </div>
                   )}
+                  </div>
                 </div>
                 {pharmacy ? (
                   <Link to="/pharmacist/patient-requests">
@@ -916,4 +1101,5 @@ export default function PharmacistDashboardLazy() {
     </div>
   );
 }
+
 

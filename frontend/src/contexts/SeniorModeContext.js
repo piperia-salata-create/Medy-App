@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase, getCurrentUser } from '../lib/supabase';
 
 const isDev = process.env.NODE_ENV !== 'production';
@@ -20,8 +20,11 @@ export const SeniorModeProvider = ({ children }) => {
   });
 
   const setSeniorModeLocal = useCallback((enabled) => {
-    setSeniorModeState(enabled);
-    localStorage.setItem('pharma-alert-senior-mode', enabled.toString());
+    setSeniorModeState((prev) => {
+      if (prev === enabled) return prev;
+      localStorage.setItem('pharma-alert-senior-mode', enabled.toString());
+      return enabled;
+    });
   }, []);
 
   const setSeniorMode = useCallback(async (enabled) => {
@@ -92,11 +95,15 @@ export const SeniorModeProvider = ({ children }) => {
     }
   }, [seniorMode]);
 
-  const value = {
+  const toggleSeniorMode = useCallback(() => {
+    setSeniorMode(!seniorMode);
+  }, [seniorMode, setSeniorMode]);
+
+  const value = useMemo(() => ({
     seniorMode,
     setSeniorMode,
-    toggleSeniorMode: () => setSeniorMode(!seniorMode)
-  };
+    toggleSeniorMode
+  }), [seniorMode, setSeniorMode, toggleSeniorMode]);
 
   return (
     <SeniorModeContext.Provider value={value}>

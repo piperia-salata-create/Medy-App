@@ -12,7 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/ta
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { EmptyState } from '../../components/ui/empty-states';
 import { toast } from 'sonner';
-import { ArrowLeft, Boxes, Upload, ClipboardPaste, FileText, CheckCircle2, AlertTriangle, Save, Download, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Boxes, Upload, ClipboardPaste, FileText, CheckCircle2, AlertTriangle, Save, Download, RefreshCw, Pencil, Trash2 } from 'lucide-react';
 
 const ALLOWED_CATEGORIES = ['medication', 'parapharmacy', 'product'];
 
@@ -32,28 +32,53 @@ const CATEGORY_LABELS = {
 
 const HEADER_KEY_MAP = {
   category: 'category',
+  'category (required)': 'category',
   'item category': 'category',
+  'κατηγορία': 'category',
+  'κατηγορια': 'category',
   'name el': 'name_el',
+  'name (el)': 'name_el',
   name_el: 'name_el',
   'greek name': 'name_el',
+  'όνομα (el)': 'name_el',
+  'ονομα (el)': 'name_el',
   'name en': 'name_en',
+  'name (en)': 'name_en',
   name_en: 'name_en',
   'english name': 'name_en',
+  'όνομα (en)': 'name_en',
+  'ονομα (en)': 'name_en',
   'desc el': 'desc_el',
   'description el': 'desc_el',
+  'description (el)': 'desc_el',
+  'περιγραφή (el)': 'desc_el',
+  'περιγραφη (el)': 'desc_el',
   'desc en': 'desc_en',
   'description en': 'desc_en',
+  'description (en)': 'desc_en',
+  'περιγραφή (en)': 'desc_en',
+  'περιγραφη (en)': 'desc_en',
   barcode: 'barcode',
   'bar code': 'barcode',
   brand: 'brand',
+  'μάρκα': 'brand',
+  'μαρκα': 'brand',
   strength: 'strength',
+  'περιεκτικότητα': 'strength',
+  'περιεκτικοτητα': 'strength',
   form: 'form',
+  'μορφή': 'form',
+  'μορφη': 'form',
   'active ingredient el': 'active_ingredient_el',
   active_ingredient_el: 'active_ingredient_el',
   'active ingredient en': 'active_ingredient_en',
   active_ingredient_en: 'active_ingredient_en',
   price: 'price',
-  notes: 'notes'
+  'τιμή': 'price',
+  'τιμη': 'price',
+  notes: 'notes',
+  'σημειώσεις': 'notes',
+  'σημειωσεις': 'notes'
 };
 
 const cleanText = (value) => (value === null || value === undefined ? '' : String(value).trim());
@@ -183,11 +208,22 @@ const toPreviewRow = (index, rawItem, language, lineLabel = '') => {
   };
 };
 
+const getImportCounts = (response) => {
+  const counts = response?.counts || {};
+  return {
+    upsertedInventory: Number(counts.upserted_inventory || 0),
+    skippedInvalid: Number(counts.skipped_invalid || 0),
+    ambiguousSkipped: Number(counts.ambiguous_skipped || 0)
+  };
+};
+
 export default function InventoryPage() {
   const { user, profile, isPharmacist, profileStatus } = useAuth();
+  const userId = user?.id || null;
   const { language } = useLanguage();
   const navigate = useNavigate();
   const csvInputRef = useRef(null);
+  const pharmacyLoadedRef = useRef(false);
 
   const [pharmacy, setPharmacy] = useState(null);
   const [loadingPharmacy, setLoadingPharmacy] = useState(true);
@@ -200,9 +236,11 @@ export default function InventoryPage() {
   const [csvFileName, setCsvFileName] = useState('');
   const [importing, setImporting] = useState(false);
   const [importSummary, setImportSummary] = useState(null);
+  const [activeTab, setActiveTab] = useState('import');
 
   const [manualSaving, setManualSaving] = useState(false);
   const [manualSummary, setManualSummary] = useState(null);
+  const [editingInventoryId, setEditingInventoryId] = useState('');
   const [manualForm, setManualForm] = useState({
     category: 'medication',
     name_el: '',
@@ -216,6 +254,7 @@ export default function InventoryPage() {
   const [loadingInventory, setLoadingInventory] = useState(false);
   const [inventoryActionProductId, setInventoryActionProductId] = useState('');
   const [proposalActionProductId, setProposalActionProductId] = useState('');
+  const [deletingInventoryId, setDeletingInventoryId] = useState('');
   const [markedProductIds, setMarkedProductIds] = useState([]);
   const [exportingCatalog, setExportingCatalog] = useState(false);
   const [exportingAssociations, setExportingAssociations] = useState(false);
@@ -244,14 +283,26 @@ export default function InventoryPage() {
     if (profile && !isPharmacist()) navigate('/patient');
   }, [profile, isPharmacist, navigate, profileStatus]);
 
-  const fetchMyPharmacy = useCallback(async () => {
-    if (!user) return;
+  useEffect(() => {
+    pharmacyLoadedRef.current = false;
     setLoadingPharmacy(true);
+  }, [userId]);
+
+  const fetchMyPharmacy = useCallback(async () => {
+    if (!userId) {
+      setPharmacy(null);
+      setLoadingPharmacy(false);
+      return;
+    }
+    const isInitialLoad = !pharmacyLoadedRef.current;
+    if (isInitialLoad) {
+      setLoadingPharmacy(true);
+    }
     try {
       const { data, error } = await supabase
         .from('pharmacies')
         .select('id, name, address')
-        .eq('owner_id', user.id)
+        .eq('owner_id', userId)
         .maybeSingle();
       if (error) throw error;
       setPharmacy(data || null);
@@ -259,9 +310,12 @@ export default function InventoryPage() {
       console.error('Error loading pharmacy for inventory:', error);
       setPharmacy(null);
     } finally {
-      setLoadingPharmacy(false);
+      pharmacyLoadedRef.current = true;
+      if (isInitialLoad) {
+        setLoadingPharmacy(false);
+      }
     }
-  }, [user]);
+  }, [userId]);
 
   useEffect(() => {
     fetchMyPharmacy();
@@ -292,6 +346,8 @@ export default function InventoryPage() {
             category,
             name_el,
             name_en,
+            desc_el,
+            desc_en,
             barcode,
             brand,
             form,
@@ -435,7 +491,7 @@ export default function InventoryPage() {
 
   const toggleGlobalProposalMark = useCallback(async (row) => {
     const productId = row?.product_id || row?.product?.id || null;
-    if (!pharmacy?.id || !productId || !user?.id) return;
+    if (!pharmacy?.id || !productId || !userId) return;
 
     const currentlyMarked = markedProductSet.has(productId);
     setProposalActionProductId(productId);
@@ -455,7 +511,7 @@ export default function InventoryPage() {
             {
               product_id: productId,
               pharmacy_id: pharmacy.id,
-              marked_by: user.id
+              marked_by: userId
             },
             { onConflict: 'product_id,pharmacy_id' }
           );
@@ -478,43 +534,131 @@ export default function InventoryPage() {
     } finally {
       setProposalActionProductId('');
     }
-  }, [fetchInventoryRows, language, markedProductSet, pharmacy?.id, user?.id]);
+  }, [fetchInventoryRows, language, markedProductSet, pharmacy?.id, userId]);
 
-  const buildCsvPreview = async (file) => {
-    const text = await file.text();
-    const lines = text.split(/\r?\n/).filter((line) => cleanText(line).length > 0);
-    if (lines.length < 2) {
+  const loadInventoryRowIntoManualForm = useCallback((row) => {
+    const product = row?.product || {};
+    const productCategory = cleanText(product?.category)?.toLowerCase();
+    const category = ALLOWED_CATEGORIES.includes(productCategory) ? productCategory : 'product';
+    const priceValue = row?.price;
+    setManualForm({
+      category,
+      name_el: cleanText(product?.name_el) || '',
+      name_en: cleanText(product?.name_en) || '',
+      desc_el: cleanText(product?.desc_el) || '',
+      desc_en: cleanText(product?.desc_en) || '',
+      price: priceValue === null || priceValue === undefined ? '' : String(priceValue),
+      notes: cleanText(row?.notes) || ''
+    });
+    setEditingInventoryId(row?.id || '');
+    setManualSummary(null);
+    setActiveTab('manual');
+    toast.success(language === 'el' ? 'Τα στοιχεία φορτώθηκαν για διόρθωση.' : 'Item loaded for correction.');
+  }, [language]);
+
+  const deleteInventoryRow = useCallback(async (row) => {
+    const inventoryId = row?.id;
+    if (!inventoryId) return;
+
+    const confirmed = window.confirm(
+      language === 'el'
+        ? 'Να διαγραφεί αυτή η εγγραφή από το απόθεμα;'
+        : 'Delete this row from inventory?'
+    );
+    if (!confirmed) return;
+
+    setDeletingInventoryId(inventoryId);
+    try {
+      const { error } = await supabase
+        .from('pharmacy_inventory')
+        .delete()
+        .eq('id', inventoryId);
+      if (error) throw error;
+
+      await fetchInventoryRows();
+      if (editingInventoryId === inventoryId) {
+        setEditingInventoryId('');
+      }
+      toast.success(language === 'el' ? 'Η εγγραφή αφαιρέθηκε από το απόθεμα.' : 'Inventory row deleted.');
+    } catch (error) {
+      console.error('Delete inventory row failed:', error);
+      toast.error(error?.message || (language === 'el' ? 'Αποτυχία διαγραφής εγγραφής.' : 'Failed to delete inventory row.'));
+    } finally {
+      setDeletingInventoryId('');
+    }
+  }, [editingInventoryId, fetchInventoryRows, language]);
+
+  const buildPreviewFromTableRows = useCallback((rows, sourceTag, defaultCategory = 'product') => {
+    const nonEmptyRows = (Array.isArray(rows) ? rows : [])
+      .map((row) => (Array.isArray(row) ? row.map((cell) => cleanText(cell) || '') : []))
+      .filter((row) => row.some((cell) => cell.length > 0));
+
+    if (nonEmptyRows.length < 2) {
       setPreviewRows([]);
-      setPreviewNotice(language === 'el' ? 'Το CSV δεν περιέχει δεδομένα.' : 'CSV does not contain data rows.');
-      return;
+      setPreviewNotice(language === 'el' ? 'Το αρχείο δεν περιέχει δεδομένα.' : 'File does not contain data rows.');
+      return false;
     }
 
-    const delimiter = detectDelimiter(lines[0]);
-    const headers = parseDelimitedLine(lines[0], delimiter).map(normalizeHeader);
+    const headers = nonEmptyRows[0].map(normalizeHeader);
     const mappedKeys = headers.map((header) => HEADER_KEY_MAP[header] || null);
     if (mappedKeys.filter(Boolean).length === 0) {
       setPreviewRows([]);
       setPreviewNotice(language === 'el'
-        ? 'Δεν αναγνωρίστηκαν κεφαλίδες CSV. Χρησιμοποιήστε category,name_el,name_en,price.'
-        : 'No recognized CSV headers. Use category,name_el,name_en,price.');
-      return;
+        ? 'Δεν αναγνωρίστηκαν κεφαλίδες. Χρησιμοποιήστε category,name_el,name_en,price.'
+        : 'No recognized headers. Use category,name_el,name_en,price.');
+      return false;
     }
 
     const nextRows = [];
-    for (let i = 1; i < lines.length; i += 1) {
-      const cells = parseDelimitedLine(lines[i], delimiter);
-      const obj = { category: 'product' };
+    for (let i = 1; i < nonEmptyRows.length; i += 1) {
+      const cells = nonEmptyRows[i];
+      const obj = { category: defaultCategory };
       mappedKeys.forEach((key, idx) => {
         if (!key) return;
         obj[key] = cells[idx] ?? '';
       });
-      obj.category = cleanText(obj.category).toLowerCase() || 'product';
-      nextRows.push(toPreviewRow(i, obj, language, `CSV ${i + 1}`));
+      obj.category = cleanText(obj.category).toLowerCase() || defaultCategory || 'product';
+      nextRows.push(toPreviewRow(i, obj, language, `${String(sourceTag || 'file').toUpperCase()} ${i + 1}`));
     }
 
     setPreviewRows(nextRows);
-    setPreviewSource('csv');
+    setPreviewSource(sourceTag || 'file');
     setPreviewNotice('');
+    return true;
+  }, [language]);
+
+  const buildCsvPreview = async (file) => {
+    const lowerName = String(file?.name || '').toLowerCase();
+    const isSpreadsheet = lowerName.endsWith('.xlsx') || lowerName.endsWith('.xls');
+    if (isSpreadsheet) {
+      const XLSX = await import('xlsx');
+      const arrayBuffer = await file.arrayBuffer();
+      const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+      const firstSheetName = workbook.SheetNames?.[0];
+      if (!firstSheetName) {
+        setPreviewRows([]);
+        setPreviewNotice(language === 'el' ? 'Το αρχείο Excel δεν περιέχει φύλλα.' : 'Excel file has no sheets.');
+        return;
+      }
+      const worksheet = workbook.Sheets[firstSheetName];
+      const tableRows = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false, defval: '' });
+      buildPreviewFromTableRows(tableRows, 'xlsx', 'product');
+      return;
+    }
+
+    const text = await file.text();
+    const sourceTag = lowerName.endsWith('.tsv') ? 'tsv' : (lowerName.endsWith('.txt') ? 'txt' : 'csv');
+    const lines = text.split(/\r?\n/).filter((line) => cleanText(line).length > 0);
+    if (lines.length < 2) {
+      setPreviewRows([]);
+      setPreviewNotice(language === 'el' ? 'Το αρχείο δεν περιέχει δεδομένα.' : 'File does not contain data rows.');
+      return;
+    }
+
+    const delimiter = detectDelimiter(lines[0]);
+    const tableRows = lines.map((line) => parseDelimitedLine(line, delimiter));
+    buildPreviewFromTableRows(tableRows, sourceTag, 'product');
+    return;
   };
 
   const handleCsvFileChange = async (event) => {
@@ -525,9 +669,9 @@ export default function InventoryPage() {
     try {
       await buildCsvPreview(file);
     } catch (error) {
-      console.error('CSV parse failed:', error);
+      console.error('Import file parse failed:', error);
       setPreviewRows([]);
-      setPreviewNotice(language === 'el' ? '\u0391\u03c0\u03bf\u03c4\u03c5\u03c7\u03af\u03b1 \u03b1\u03bd\u03ac\u03b3\u03bd\u03c9\u03c3\u03b7\u03c2 CSV.' : 'Failed to read CSV.');
+      setPreviewNotice(language === 'el' ? 'Αποτυχία ανάγνωσης αρχείου.' : 'Failed to read file.');
     } finally {
       // Allow picking the same file again and still trigger onChange.
       event.target.value = '';
@@ -538,6 +682,74 @@ export default function InventoryPage() {
     csvInputRef.current?.click();
   }, []);
 
+  const downloadImportTemplate = useCallback(async () => {
+    const fillHeaders = language === 'el'
+      ? ['Κατηγορία', 'Όνομα (EL)', 'Όνομα (EN)', 'Περιγραφή (EL)', 'Περιγραφή (EN)', 'Barcode', 'Μάρκα', 'Περιεκτικότητα', 'Μορφή', 'Τιμή', 'Σημειώσεις']
+      : ['Category', 'Name (EL)', 'Name (EN)', 'Description (EL)', 'Description (EN)', 'Barcode', 'Brand', 'Strength', 'Form', 'Price', 'Notes'];
+    const fillEmptyRow = ['', '', '', '', '', '', '', '', '', '', ''];
+    const sampleRow = ['medication', 'Παρακεταμόλη 500mg', 'Paracetamol 500mg', '', '', '', '', '500mg', 'tablet', '', ''];
+    const guideRows = language === 'el'
+      ? [
+        ['Οδηγίες χρήσης προτύπου'],
+        ['1) Συμπληρώστε μόνο το φύλλο "Fill Import".'],
+        ['2) Μην αλλάξετε την 1η γραμμή κεφαλίδων.'],
+        ['3) Υποχρεωτικό: τουλάχιστον ένα από Όνομα (EL), Όνομα (EN), Barcode.'],
+        ['4) Κατηγορία: medication, parapharmacy ή product.'],
+        ['5) Τιμή προαιρετική, αριθμός π.χ. 4.50.'],
+        ['6) Για ακριβή ταύτιση βοηθούν Barcode / Περιεκτικότητα / Μορφή.'],
+        ['Παράδειγμα γραμμής:'],
+        sampleRow
+      ]
+      : [
+        ['Template usage guide'],
+        ['1) Fill only the "Fill Import" sheet.'],
+        ['2) Do not change row 1 headers.'],
+        ['3) Required: at least one of Name (EL), Name (EN), Barcode.'],
+        ['4) Category must be medication, parapharmacy, or product.'],
+        ['5) Price is optional and must be numeric, e.g. 4.50.'],
+        ['6) Barcode / Strength / Form help exact matching.'],
+        ['Sample row:'],
+        sampleRow
+      ];
+
+    try {
+      const XLSX = await import('xlsx');
+      const fillSheet = XLSX.utils.aoa_to_sheet([fillHeaders, fillEmptyRow]);
+      fillSheet['!cols'] = fillHeaders.map(() => ({ wch: 26 }));
+      fillSheet['!autofilter'] = { ref: 'A1:K1' };
+
+      const guideSheet = XLSX.utils.aoa_to_sheet(guideRows);
+      guideSheet['!cols'] = [{ wch: 90 }];
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, fillSheet, 'Fill Import');
+      XLSX.utils.book_append_sheet(workbook, guideSheet, language === 'el' ? 'Οδηγίες' : 'Instructions');
+
+      const bytes = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+      const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const objectUrl = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = 'inventory-import-template.xlsx';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(objectUrl);
+    } catch (error) {
+      console.error('Template generation failed:', error);
+      toast.error(language === 'el' ? 'Αποτυχία δημιουργίας προτύπου Excel.' : 'Failed to create Excel template.');
+    }
+  }, [language]);
+
+  const buildStructuredPastePreview = () => {
+    const lines = pasteText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    if (lines.length < 2) return false;
+
+    const delimiter = detectDelimiter(lines[0]);
+    const tableRows = lines.map((line) => parseDelimitedLine(line, delimiter));
+    return buildPreviewFromTableRows(tableRows, 'paste-table', pasteCategory || 'product');
+  };
+
   const buildPastePreview = () => {
     const lines = pasteText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
     if (lines.length === 0) {
@@ -546,8 +758,14 @@ export default function InventoryPage() {
       return;
     }
 
+    if (buildStructuredPastePreview()) {
+      setImportSummary(null);
+      return;
+    }
+
     const rows = lines.map((line, idx) => {
-      const parts = line.split('|').map((part) => part.trim()).filter(Boolean);
+      const delimiter = line.includes('|') ? '|' : (line.includes('\t') ? '\t' : null);
+      const parts = (delimiter ? line.split(delimiter) : [line]).map((part) => part.trim()).filter(Boolean);
       let nameEl = '';
       let nameEn = '';
       if (parts.length >= 2) {
@@ -583,7 +801,18 @@ export default function InventoryPage() {
       const response = await importInventoryItems(pharmacy.id, items);
       setImportSummary(response);
       await fetchInventoryRows();
-      toast.success(language === 'el' ? 'Η εισαγωγή ολοκληρώθηκε.' : 'Import completed.');
+      const counts = getImportCounts(response);
+      if (counts.upsertedInventory > 0 && (counts.skippedInvalid > 0 || counts.ambiguousSkipped > 0)) {
+        toast.warning(`Import completed with warnings. Saved: ${counts.upsertedInventory}, invalid: ${counts.skippedInvalid}, ambiguous: ${counts.ambiguousSkipped}.`);
+      } else if (counts.upsertedInventory > 0) {
+        toast.success(language === 'el' ? 'Η εισαγωγή ολοκληρώθηκε.' : 'Import completed.');
+      } else if (counts.ambiguousSkipped > 0) {
+        toast.error('No rows were saved. Multiple catalog matches found. Add barcode, strength, or form.');
+      } else if (counts.skippedInvalid > 0) {
+        toast.error('No rows were saved. Some rows are invalid.');
+      } else {
+        toast.error('Import finished, but no rows were saved.');
+      }
     } catch (error) {
       console.error('Inventory import failed:', error);
       toast.error(error?.message || (language === 'el' ? 'Αποτυχία εισαγωγής.' : 'Import failed.'));
@@ -608,8 +837,19 @@ export default function InventoryPage() {
       const response = await importInventoryItems(pharmacy.id, [row.item]);
       setManualSummary(response);
       await fetchInventoryRows();
-      toast.success(language === 'el' ? 'Το προϊόν αποθηκεύτηκε.' : 'Product saved.');
-      setManualForm((prev) => ({ ...prev, name_el: '', name_en: '', desc_el: '', desc_en: '', price: '', notes: '' }));
+      const counts = getImportCounts(response);
+      if (counts.upsertedInventory > 0) {
+        toast.success(language === 'el' ? 'Το προϊόν αποθηκεύτηκε.' : 'Product saved.');
+        setEditingInventoryId('');
+        setManualForm((prev) => ({ ...prev, name_el: '', name_en: '', desc_el: '', desc_en: '', price: '', notes: '' }));
+      } else if (counts.ambiguousSkipped > 0) {
+        toast.error('Not saved. Multiple catalog matches found. Add barcode, strength, or form.');
+      } else if (counts.skippedInvalid > 0) {
+        const firstError = Array.isArray(response?.errors) ? response.errors[0]?.message : '';
+        toast.error(firstError || 'Not saved. Row is invalid.');
+      } else {
+        toast.error('Save finished, but no inventory row was created.');
+      }
     } catch (error) {
       console.error('Manual inventory save failed:', error);
       toast.error(error?.message || (language === 'el' ? 'Αποτυχία αποθήκευσης.' : 'Save failed.'));
@@ -705,12 +945,18 @@ export default function InventoryPage() {
               </CardContent>
             </Card>
 
-            <Tabs defaultValue="import">
-              <TabsList className="bg-white border border-pharma-grey-pale rounded-xl p-1">
-                <TabsTrigger value="import" className="rounded-lg">
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
+              <TabsList className="h-auto gap-2 bg-transparent border-0 shadow-none p-0">
+                <TabsTrigger
+                  value="import"
+                  className="rounded-xl border border-pharma-grey-pale bg-white px-4 py-2 data-[state=active]:border-pharma-teal/55 data-[state=active]:bg-pharma-teal/10"
+                >
                   {language === 'el' ? 'Εισαγωγή' : 'Import'}
                 </TabsTrigger>
-                <TabsTrigger value="manual" className="rounded-lg">
+                <TabsTrigger
+                  value="manual"
+                  className="rounded-xl border border-pharma-grey-pale bg-white px-4 py-2 data-[state=active]:border-pharma-teal/55 data-[state=active]:bg-pharma-teal/10"
+                >
                   {language === 'el' ? 'Χειροκίνητη Προσθήκη' : 'Manual Add'}
                 </TabsTrigger>
               </TabsList>
@@ -720,7 +966,7 @@ export default function InventoryPage() {
                   <CardHeader>
                     <CardTitle className="font-heading text-lg text-pharma-dark-slate flex items-center gap-2">
                       <Upload className="w-5 h-5 text-pharma-teal" />
-                      CSV Upload
+                      {language === 'el' ? 'Εισαγωγή Αρχείου' : 'File Upload'}
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3">
@@ -728,7 +974,7 @@ export default function InventoryPage() {
                       ref={csvInputRef}
                       id="inventory-csv-input"
                       type="file"
-                      accept=".csv,text/csv"
+                      accept=".csv,.tsv,.txt,.xlsx,.xls,text/csv,text/tab-separated-values,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                       onChange={handleCsvFileChange}
                       className="sr-only"
                       data-testid="inventory-csv-input"
@@ -736,16 +982,20 @@ export default function InventoryPage() {
                     <div className="flex flex-wrap items-center gap-3">
                       <Button type="button" variant="outline" className="rounded-full gap-2" onClick={openCsvPicker}>
                         <Upload className="w-4 h-4" />
-                        {language === 'el' ? '\u0395\u03c0\u03b9\u03bb\u03bf\u03b3\u03ae CSV \u03b1\u03c1\u03c7\u03b5\u03af\u03bf\u03c5' : 'Choose CSV file'}
+                        {language === 'el' ? 'Επιλογή αρχείου' : 'Choose file'}
+                      </Button>
+                      <Button type="button" variant="outline" className="rounded-full gap-2" onClick={downloadImportTemplate} data-testid="download-inventory-template-btn">
+                        <Download className="w-4 h-4" />
+                        {language === 'el' ? 'Πρότυπο Excel' : 'Excel template'}
                       </Button>
                       <p className="text-sm text-pharma-slate-grey">
-                        {csvFileName || (language === 'el' ? '\u0394\u03b5\u03bd \u03b5\u03c0\u03b9\u03bb\u03ad\u03c7\u03b8\u03b7\u03ba\u03b5 \u03b1\u03c1\u03c7\u03b5\u03af\u03bf.' : 'No file selected.')}
+                        {csvFileName || (language === 'el' ? 'Δεν επιλέχθηκε αρχείο.' : 'No file selected.')}
                       </p>
                     </div>
                     <p className="text-xs text-pharma-slate-grey">
                       {language === 'el'
-                        ? 'Κεφαλίδες: category,name_el,name_en,desc_el,desc_en,barcode,brand,strength,form,price,notes'
-                        : 'Headers: category,name_el,name_en,desc_el,desc_en,barcode,brand,strength,form,price,notes'}
+                        ? 'Υποστηρίζονται CSV, TSV, TXT, XLSX με κεφαλίδες: category,name_el,name_en,desc_el,desc_en,barcode,brand,strength,form,price,notes'
+                        : 'Supported: CSV, TSV, TXT, XLSX with headers: category,name_el,name_en,desc_el,desc_en,barcode,brand,strength,form,price,notes'}
                     </p>
                   </CardContent>
                 </Card>
@@ -773,8 +1023,8 @@ export default function InventoryPage() {
                       <div className="space-y-2">
                         <label className="text-sm font-medium text-pharma-charcoal">
                           {language === 'el'
-                            ? 'Γραμμή: Ελληνικό όνομα | English name, ή μία μόνο γλώσσα'
-                            : 'Line: Greek name | English name, or single-language'}
+                            ? 'Γραμμή: Ελληνικό όνομα | English name, ή επικόλληση πίνακα Excel με κεφαλίδες'
+                            : 'Line: Greek name | English name, or paste Excel table with headers'}
                         </label>
                         <Textarea
                           value={pasteText}
@@ -845,12 +1095,22 @@ export default function InventoryPage() {
                       <p>{language === 'el' ? 'Ενημερώσεις catalog' : 'Updated catalog'}: {importSummary?.counts?.updated_catalog ?? 0}</p>
                       <p>{language === 'el' ? 'Inventory upserts' : 'Inventory upserts'}: {importSummary?.counts?.upserted_inventory ?? 0}</p>
                       <p>{language === 'el' ? 'Παραλείψεις' : 'Skipped invalid'}: {importSummary?.counts?.skipped_invalid ?? 0}</p>
+                      <p>{language === 'el' ? 'Ασαφείς γραμμές' : 'Skipped ambiguous'}: {importSummary?.counts?.ambiguous_skipped ?? 0}</p>
                     </CardContent>
                   </Card>
                 )}
               </TabsContent>
 
               <TabsContent value="manual" className="space-y-4">
+                {editingInventoryId && (
+                  <Card className="bg-pharma-steel-blue/5 rounded-2xl shadow-card border-pharma-steel-blue/30">
+                    <CardContent className="pt-4 text-sm text-pharma-charcoal">
+                      {language === 'el'
+                        ? 'Λειτουργία διόρθωσης: αποθηκεύστε τη σωστή εγγραφή και μετά διαγράψτε τη λανθασμένη από τη λίστα αποθέματος.'
+                        : 'Correction mode: save the corrected item, then delete the wrong one from inventory list.'}
+                    </CardContent>
+                  </Card>
+                )}
                 <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale">
                   <CardHeader><CardTitle className="font-heading text-lg text-pharma-dark-slate">{language === 'el' ? 'Χειροκίνητη Προσθήκη' : 'Manual Add'}</CardTitle></CardHeader>
                   <CardContent className="space-y-4">
@@ -906,6 +1166,7 @@ export default function InventoryPage() {
                     <CardContent className="text-sm text-pharma-charcoal">
                       <p>{language === 'el' ? 'Inventory upserts' : 'Inventory upserts'}: {manualSummary?.counts?.upserted_inventory ?? 0}</p>
                       <p>{language === 'el' ? 'Παραλείψεις' : 'Skipped invalid'}: {manualSummary?.counts?.skipped_invalid ?? 0}</p>
+                      <p>{language === 'el' ? 'Ασαφείς γραμμές' : 'Skipped ambiguous'}: {manualSummary?.counts?.ambiguous_skipped ?? 0}</p>
                     </CardContent>
                   </Card>
                 )}
@@ -951,6 +1212,7 @@ export default function InventoryPage() {
                       const isMarked = markedProductSet.has(productId);
                       const isSavingStatus = inventoryActionProductId === productId || inventoryActionProductId === row?.id;
                       const isSavingProposal = proposalActionProductId === productId;
+                      const isDeletingRow = deletingInventoryId === row?.id;
                       const displayPrimaryName = language === 'el'
                         ? (product?.name_el || product?.name_en || product?.barcode || '-')
                         : (product?.name_en || product?.name_el || product?.barcode || '-');
@@ -1026,8 +1288,8 @@ export default function InventoryPage() {
 
                               <Button
                                 type="button"
-                                variant={isMarked ? 'default' : 'outline'}
-                                className={`w-full rounded-xl gap-2 ${isMarked ? 'bg-pharma-coral hover:bg-pharma-coral/90' : ''}`}
+                                variant="outline"
+                                className={`w-full rounded-xl gap-2 ${isMarked ? 'border-pharma-coral bg-pharma-coral/10 text-pharma-coral hover:bg-pharma-coral/20 hover:text-pharma-coral' : ''}`}
                                 onClick={() => toggleGlobalProposalMark(row)}
                                 disabled={isSavingProposal}
                                 data-testid={`inventory-proposal-toggle-${row.id}`}
@@ -1035,8 +1297,32 @@ export default function InventoryPage() {
                                 {isSavingProposal
                                   ? (language === 'el' ? 'Ενημέρωση...' : 'Updating...')
                                   : isMarked
-                                    ? (language === 'el' ? 'Αφαίρεση πρότασης παγκόσμιας διακοπής' : 'Remove global discontinued proposal')
+                                    ? (language === 'el' ? 'Ακύρωση πρότασης διακοπής' : 'Cancel discontinued proposal')
                                     : (language === 'el' ? 'Σήμανση παγκόσμιας διακοπής (πρόταση)' : 'Mark as discontinued globally (proposal)')}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="w-full rounded-xl gap-2"
+                                onClick={() => loadInventoryRowIntoManualForm(row)}
+                                data-testid={`inventory-load-into-manual-${row.id}`}
+                              >
+                                <Pencil className="w-4 h-4" />
+                                {language === 'el' ? 'Διόρθωση / Μετονομασία' : 'Correct / Rename'}
+                              </Button>
+
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="w-full rounded-xl gap-2 border-pharma-coral/40 text-pharma-coral hover:bg-pharma-coral/10"
+                                onClick={() => deleteInventoryRow(row)}
+                                disabled={isDeletingRow}
+                                data-testid={`inventory-delete-row-${row.id}`}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                                {isDeletingRow
+                                  ? (language === 'el' ? 'Διαγραφή...' : 'Deleting...')
+                                  : (language === 'el' ? 'Διαγραφή από απόθεμα' : 'Delete from inventory')}
                               </Button>
                             </div>
                           </div>
@@ -1053,3 +1339,4 @@ export default function InventoryPage() {
     </div>
   );
 }
+

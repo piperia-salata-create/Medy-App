@@ -1,11 +1,12 @@
-import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useMemo, useState } from 'react';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
 import { Card, CardContent } from '../../components/ui/card';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '../../components/ui/dialog';
 import { SkeletonList, SkeletonCard } from '../../components/ui/skeleton-loaders';
 import { EmptyState } from '../../components/ui/empty-states';
-import { ClipboardList, MapPin, Navigation, Phone } from 'lucide-react';
+import { ClipboardList, MapPin, Navigation, Phone, Search } from 'lucide-react';
 import { calculateDistance, formatDistance } from '../../lib/geoUtils';
 
 const HistoryTab = lazy(() => import('./PatientRequestsHistoryTab'));
@@ -13,6 +14,7 @@ const HistoryTab = lazy(() => import('./PatientRequestsHistoryTab'));
 const PatientRequestsListLazy = ({
   requests,
   requestsLoading,
+  requestsRefreshing,
   remainingAcceptedCancels,
   cancelPatientRequest,
   cancelingId,
@@ -22,7 +24,7 @@ const PatientRequestsListLazy = ({
 }) => {
   const { t, language } = useLanguage();
   const [requestsTab, setRequestsTab] = useState('active');
-  const [historyVisibleCount, setHistoryVisibleCount] = useState(5);
+  const [historySearchQuery, setHistorySearchQuery] = useState('');
   const [selectedPharmacyDetails, setSelectedPharmacyDetails] = useState(null);
 
   const activeRequests = useMemo(() => {
@@ -42,14 +44,6 @@ const PatientRequestsListLazy = ({
       return isHistoryStatus || isTimeExpired;
     }).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   }, [requests]);
-
-  const visibleHistoryRequests = useMemo(() => historyRequests.slice(0, historyVisibleCount), [historyRequests, historyVisibleCount]);
-
-  useEffect(() => {
-    if (requestsTab === 'history') {
-      setHistoryVisibleCount(5);
-    }
-  }, [requestsTab]);
 
   const formOptions = useMemo(() => ([
     { value: 'tablet', label: language === 'el' ? 'Δισκίο' : 'Tablet' },
@@ -103,14 +97,52 @@ const PatientRequestsListLazy = ({
     return new Date(value).toLocaleString(language === 'el' ? 'el-GR' : 'en-US');
   };
 
-  const getHistoryStatusLabel = (request) => {
+  const getHistoryStatusLabel = useCallback((request) => {
     const isExpired = request.expires_at && new Date(request.expires_at).getTime() <= Date.now();
     if (request.status === 'executed') return language === 'el' ? 'Εκτελεσμένο' : 'Executed';
     if (request.status === 'cancelled') return language === 'el' ? 'Ακυρώθηκε' : 'Cancelled';
     if (request.status === 'rejected') return language === 'el' ? 'Απορρίφθηκε' : 'Rejected';
     if (isExpired) return language === 'el' ? 'Έληξε' : 'Expired';
     return language === 'el' ? 'Ολοκληρώθηκε' : 'Completed';
-  };
+  }, [language]);
+
+  const filteredHistoryRequests = useMemo(() => {
+    const query = historySearchQuery.trim().toLowerCase();
+    if (!query) return historyRequests;
+
+    return historyRequests.filter((request) => {
+      const recipients = Array.isArray(request?.patient_request_recipients)
+        ? request.patient_request_recipients
+        : [];
+      const recipientNames = recipients
+        .map((recipient) => recipient?.pharmacies?.name || '')
+        .filter(Boolean)
+        .join(' ');
+      const recipientStatuses = recipients
+        .map((recipient) => recipient?.status || '')
+        .filter(Boolean)
+        .join(' ');
+
+      const searchBlob = [
+        request?.medicine_query,
+        request?.dosage,
+        request?.form,
+        request?.form ? (formLabelMap[request.form] || request.form) : '',
+        request?.urgency,
+        request?.urgency ? (urgencyLabelMap[request.urgency] || request.urgency) : '',
+        request?.status,
+        getHistoryStatusLabel(request),
+        request?.notes,
+        recipientNames,
+        recipientStatuses
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+      return searchBlob.includes(query);
+    });
+  }, [historyRequests, historySearchQuery, formLabelMap, urgencyLabelMap, getHistoryStatusLabel]);
 
   const getRequestStatusConfig = (status) => {
     const config = {
@@ -415,13 +447,22 @@ const PatientRequestsListLazy = ({
     </div>
   );
 
-  const historyContent = (
+  const historyContent = historyRequests.length === 0 ? (
+    <EmptyState
+      icon={ClipboardList}
+      title={language === 'el' ? 'Δεν υπάρχουν ιστορικά αιτήματα' : 'No history requests'}
+      description={language === 'el' ? 'Τα ολοκληρωμένα αιτήματα θα εμφανιστούν εδώ.' : 'Completed requests will appear here.'}
+    />
+  ) : filteredHistoryRequests.length === 0 ? (
+    <EmptyState
+      icon={ClipboardList}
+      title={language === 'el' ? 'Δεν βρέθηκαν αποτελέσματα' : 'No matching history requests'}
+      description={language === 'el' ? 'Δοκιμάστε άλλη λέξη-κλειδί.' : 'Try another keyword.'}
+    />
+  ) : (
     <Suspense fallback={<SkeletonList count={2} CardComponent={SkeletonCard} />}>
       <HistoryTab
-        requests={visibleHistoryRequests}
-        historyRequestsCount={historyRequests.length}
-        historyVisibleCount={historyVisibleCount}
-        setHistoryVisibleCount={setHistoryVisibleCount}
+        requests={filteredHistoryRequests}
         renderRequestCard={renderRequestCard}
       />
     </Suspense>
@@ -434,6 +475,15 @@ const PatientRequestsListLazy = ({
         <h2 className="font-heading text-lg font-semibold text-pharma-dark-slate">
           {t('myRequestsTitle')}
         </h2>
+      </div>
+      <div className="mb-3 min-h-[18px] text-xs text-pharma-slate-grey">
+        {requestsRefreshing && !requestsLoading ? (
+          language === 'el' ? 'Γίνεται ενημέρωση αιτημάτων...' : 'Updating requests...'
+        ) : (
+          <span className="invisible">
+            {language === 'el' ? 'Γίνεται ενημέρωση αιτημάτων...' : 'Updating requests...'}
+          </span>
+        )}
       </div>
 
       <div className="flex gap-2 mb-4">
@@ -461,13 +511,32 @@ const PatientRequestsListLazy = ({
         </button>
       </div>
 
-      {requestsLoading ? (
-        <SkeletonList count={2} CardComponent={SkeletonCard} />
-      ) : requestsTab === 'history' ? (
-        historyContent
-      ) : (
-        activeContent
+      {requestsTab === 'history' && (
+        <div className="relative mb-4">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-pharma-slate-grey" />
+          <Input
+            value={historySearchQuery}
+            onChange={(event) => setHistorySearchQuery(event.target.value)}
+            placeholder={
+              language === 'el'
+                ? 'Αναζήτηση με φάρμακο, δοσολογία ή λέξη-κλειδί...'
+                : 'Search by medicine, dosage, or keyword...'
+            }
+            className="pl-9 rounded-xl"
+            data-testid="patient-history-search-input"
+          />
+        </div>
       )}
+
+      <div className="paint-stable">
+        {requestsLoading ? (
+          <SkeletonList count={2} CardComponent={SkeletonCard} />
+        ) : requestsTab === 'history' ? (
+          historyContent
+        ) : (
+          activeContent
+        )}
+      </div>
 
       <Dialog
         open={Boolean(selectedPharmacyDetails)}
@@ -536,3 +605,4 @@ const PatientRequestsListLazy = ({
 };
 
 export default PatientRequestsListLazy;
+

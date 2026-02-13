@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './AuthContext';
 
@@ -17,17 +17,36 @@ export const NotificationProvider = ({ children }) => {
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const { user } = useAuth();
+  const userId = user?.id || null;
+
+  const areNotificationsEqual = useCallback((prev = [], next = []) => {
+    if (prev.length !== next.length) return false;
+    for (let i = 0; i < prev.length; i += 1) {
+      const a = prev[i];
+      const b = next[i];
+      if ((a?.id || '') !== (b?.id || '')) return false;
+      if (Boolean(a?.is_read) !== Boolean(b?.is_read)) return false;
+      if ((a?.created_at || '') !== (b?.created_at || '')) return false;
+      if ((a?.updated_at || '') !== (b?.updated_at || '')) return false;
+    }
+    return true;
+  }, []);
 
   // Fetch notifications
   const fetchNotifications = useCallback(async () => {
-    if (!user) return;
+    if (!userId) {
+      setNotifications((prev) => (prev.length === 0 ? prev : []));
+      setUnreadCount((prev) => (prev === 0 ? prev : 0));
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
     try {
       const { data, error } = await supabase
         .from('notifications')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .order('created_at', { ascending: false })
         .limit(50);
 
@@ -37,15 +56,15 @@ export const NotificationProvider = ({ children }) => {
         ...n,
         is_read: n.is_read ?? n.read
       }));
-
-      setNotifications(normalized);
-      setUnreadCount(normalized.filter(n => !n.is_read).length);
+      const nextUnreadCount = normalized.filter(n => !n.is_read).length;
+      setNotifications((prev) => (areNotificationsEqual(prev, normalized) ? prev : normalized));
+      setUnreadCount((prev) => (prev === nextUnreadCount ? prev : nextUnreadCount));
     } catch (error) {
       console.error('Error fetching notifications:', error);
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [userId, areNotificationsEqual]);
 
   // Mark notification as read
   const markAsRead = useCallback(async (notificationId) => {
@@ -68,13 +87,13 @@ export const NotificationProvider = ({ children }) => {
 
   // Mark all as read
   const markAllAsRead = useCallback(async () => {
-    if (!user) return;
+    if (!userId) return;
 
     try {
       const { error } = await supabase
         .from('notifications')
         .update({ is_read: true })
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .eq('is_read', false);
 
       if (error) throw error;
@@ -84,7 +103,7 @@ export const NotificationProvider = ({ children }) => {
     } catch (error) {
       console.error('Error marking all as read:', error);
     }
-  }, [user]);
+  }, [userId]);
 
   // Delete notification
   const deleteNotification = useCallback(async (notificationId) => {
@@ -115,28 +134,29 @@ export const NotificationProvider = ({ children }) => {
       is_read: notification.is_read ?? notification.read
     };
 
-    setNotifications(prev => [normalized, ...prev]);
-    if (!normalized.is_read) {
-      setUnreadCount(prev => prev + 1);
-    }
+    setNotifications(prev => {
+      if (prev.some((item) => item.id === normalized.id)) return prev;
+      return [normalized, ...prev];
+    });
+    if (!normalized.is_read) setUnreadCount(prev => prev + 1);
   }, []);
 
   // Subscribe to realtime notifications
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
 
     fetchNotifications();
 
     // Subscribe to new notifications
     const channel = supabase
-      .channel(`notifications:${user.id}`)
+      .channel(`notifications:${userId}`)
       .on(
         'postgres_changes',
         {
           event: 'INSERT',
           schema: 'public',
           table: 'notifications',
-          filter: `user_id=eq.${user.id}`
+          filter: `user_id=eq.${userId}`
         },
         (payload) => {
           addNotification(payload.new);
@@ -147,9 +167,9 @@ export const NotificationProvider = ({ children }) => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user, fetchNotifications, addNotification]);
+  }, [userId, fetchNotifications, addNotification]);
 
-  const value = {
+  const value = useMemo(() => ({
     notifications,
     unreadCount,
     loading,
@@ -158,7 +178,16 @@ export const NotificationProvider = ({ children }) => {
     markAllAsRead,
     deleteNotification,
     addNotification
-  };
+  }), [
+    notifications,
+    unreadCount,
+    loading,
+    fetchNotifications,
+    markAsRead,
+    markAllAsRead,
+    deleteNotification,
+    addNotification
+  ]);
 
   return (
     <NotificationContext.Provider value={value}>

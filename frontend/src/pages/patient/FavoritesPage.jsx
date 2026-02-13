@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -22,20 +22,24 @@ import {
 const isDev = process.env.NODE_ENV !== 'production';
 
 export default function FavoritesPage() {
-  const { user, session, loading: authLoading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
+  const userId = user?.id || null;
   const { t, language } = useLanguage();
   
   const [favorites, setFavorites] = useState([]);
   const [loading, setLoading] = useState(true);
+  const loadedRef = useRef(false);
 
   // Fetch favorites with pharmacy details
   const fetchFavorites = useCallback(async () => {
-    if (!user) {
+    if (!userId) {
       setLoading(false);
       return;
     }
 
-    setLoading(true);
+    if (!loadedRef.current) {
+      setLoading(true);
+    }
     try {
       const { data, error } = await supabase
         .from('favorites')
@@ -51,16 +55,17 @@ export default function FavoritesPage() {
             is_on_call
           )
         `)
-        .eq('user_id', user.id);
+        .eq('user_id', userId);
 
       if (error) throw error;
       setFavorites(data || []);
+      loadedRef.current = true;
     } catch (error) {
       console.error('Error fetching favorites:', error);
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [userId]);
 
   // Remove from favorites
   const removeFavorite = async (favoriteId, pharmacyName) => {
@@ -84,12 +89,14 @@ export default function FavoritesPage() {
   };
 
   useEffect(() => {
+    loadedRef.current = false;
+    setLoading(true);
     if (isDev) {
-      console.log('FavoritesPage init', { user, session, authLoading });
+      console.log('FavoritesPage init', { userId, authLoading });
     }
     if (authLoading) return;
     fetchFavorites();
-  }, [authLoading, fetchFavorites, user, session]);
+  }, [authLoading, fetchFavorites, userId]);
 
   return (
     <div className="min-h-screen bg-pharma-ice-blue" data-testid="favorites-page">

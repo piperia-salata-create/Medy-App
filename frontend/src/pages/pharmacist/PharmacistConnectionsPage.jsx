@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -26,6 +26,8 @@ import {
 
 export default function PharmacistConnectionsPage() {
   const { user, profile, isPharmacist } = useAuth();
+  const userId = user?.id || null;
+  const profileId = profile?.id || null;
   const { language } = useLanguage();
   const navigate = useNavigate();
 
@@ -37,17 +39,28 @@ export default function PharmacistConnectionsPage() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [sendingInvite, setSendingInvite] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const loadedRef = useRef(false);
 
   // Redirect if not pharmacist
   useEffect(() => {
-    if (profile && !isPharmacist()) {
+    if (profileId && !isPharmacist()) {
       navigate('/patient');
     }
-  }, [profile, isPharmacist, navigate]);
+  }, [profileId, isPharmacist, navigate]);
 
   // Fetch all connections for current user
   const fetchConnections = useCallback(async () => {
-    if (!user) return;
+    if (!userId) {
+      setConnections((prev) => (prev.length === 0 ? prev : []));
+      setPendingIncoming((prev) => (prev.length === 0 ? prev : []));
+      setPendingOutgoing((prev) => (prev.length === 0 ? prev : []));
+      setLoading(false);
+      return;
+    }
+    const isInitialLoad = !loadedRef.current;
+    if (isInitialLoad) {
+      setLoading(true);
+    }
     
     try {
       const { data, error } = await supabase
@@ -61,7 +74,7 @@ export default function PharmacistConnectionsPage() {
             id, full_name, email, pharmacy_name
           )
         `)
-        .or(`requester_pharmacist_id.eq.${user.id},target_pharmacist_id.eq.${user.id}`)
+        .or(`requester_pharmacist_id.eq.${userId},target_pharmacist_id.eq.${userId}`)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -71,21 +84,22 @@ export default function PharmacistConnectionsPage() {
       // Categorize connections
       const accepted = allConnections.filter(c => c.status === 'accepted');
       const pendingIn = allConnections.filter(
-        c => c.status === 'pending' && c.target_pharmacist_id === user.id
+        c => c.status === 'pending' && c.target_pharmacist_id === userId
       );
       const pendingOut = allConnections.filter(
-        c => c.status === 'pending' && c.requester_pharmacist_id === user.id
+        c => c.status === 'pending' && c.requester_pharmacist_id === userId
       );
 
       setConnections(accepted);
       setPendingIncoming(pendingIn);
       setPendingOutgoing(pendingOut);
+      loadedRef.current = true;
     } catch (error) {
       console.error('Error fetching connections:', error);
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [userId]);
 
   // Send invite by email
   const sendInvite = async () => {
@@ -116,7 +130,7 @@ export default function PharmacistConnectionsPage() {
         return;
       }
 
-      if (targetProfile.id === user.id) {
+      if (targetProfile.id === userId) {
         toast.error(
           language === 'el' 
             ? 'Δεν μπορείτε να στείλετε πρόσκληση στον εαυτό σας' 
@@ -130,8 +144,8 @@ export default function PharmacistConnectionsPage() {
         .from('pharmacist_connections')
         .select('id, status')
         .or(
-          `and(requester_pharmacist_id.eq.${user.id},target_pharmacist_id.eq.${targetProfile.id}),` +
-          `and(requester_pharmacist_id.eq.${targetProfile.id},target_pharmacist_id.eq.${user.id})`
+          `and(requester_pharmacist_id.eq.${userId},target_pharmacist_id.eq.${targetProfile.id}),` +
+          `and(requester_pharmacist_id.eq.${targetProfile.id},target_pharmacist_id.eq.${userId})`
         )
         .maybeSingle();
 
@@ -154,7 +168,7 @@ export default function PharmacistConnectionsPage() {
       const { error: insertError } = await supabase
         .from('pharmacist_connections')
         .insert({
-          requester_pharmacist_id: user.id,
+          requester_pharmacist_id: userId,
           target_pharmacist_id: targetProfile.id,
           status: 'pending'
         });
@@ -233,12 +247,14 @@ export default function PharmacistConnectionsPage() {
 
   // Initial fetch
   useEffect(() => {
+    loadedRef.current = false;
+    setLoading(true);
     fetchConnections();
-  }, [fetchConnections]);
+  }, [userId, fetchConnections]);
 
   // Realtime subscription
   useEffect(() => {
-    if (!user) return;
+    if (!userId) return;
 
     const channel = supabase
       .channel('pharmacist_connections_updates')
@@ -252,11 +268,11 @@ export default function PharmacistConnectionsPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user, fetchConnections]);
+  }, [userId, fetchConnections]);
 
   // Filter connections
   const filteredConnections = connections.filter(c => {
-    const otherUser = c.requester_pharmacist_id === user?.id ? c.target : c.requester;
+    const otherUser = c.requester_pharmacist_id === userId ? c.target : c.requester;
     return (
       otherUser?.full_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       otherUser?.pharmacy_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -454,7 +470,7 @@ export default function PharmacistConnectionsPage() {
           ) : (
             <div className="grid md:grid-cols-2 gap-4">
               {filteredConnections.map((conn) => {
-                const otherUser = conn.requester_pharmacist_id === user?.id ? conn.target : conn.requester;
+                const otherUser = conn.requester_pharmacist_id === userId ? conn.target : conn.requester;
                 return (
                   <Card 
                     key={conn.id}

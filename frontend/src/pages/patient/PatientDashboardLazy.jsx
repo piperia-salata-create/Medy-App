@@ -5,7 +5,6 @@ import { useLanguage } from '../../contexts/LanguageContext';
 import { useSeniorMode } from '../../contexts/SeniorModeContext';
 import { useNotifications } from '../../contexts/NotificationContext';
 import { supabase } from '../../lib/supabase';
-import { findPharmacyIdsByProductQuery, getProductSuggestionLabel } from '../../lib/inventory/searchInventory';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
@@ -34,7 +33,6 @@ import {
   Map,
   List,
   Locate,
-  Search,
   Send
 } from 'lucide-react';
 
@@ -46,6 +44,11 @@ const PatientRequestsList = lazy(() => import('./PatientRequestsListLazy').then(
 })));
 
 const isDev = process.env.NODE_ENV !== 'production';
+const patientDashboardUiCache = {
+  deferMountReady: false,
+  lightStageReady: false,
+  nearbyLoaded: false
+};
 
 const dayKeyByIndex = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 
@@ -87,8 +90,58 @@ const isPharmacyOpenNow = (hoursValue) => {
   return nowMinutes >= openMinutes && nowMinutes < closeMinutes;
 };
 
+const areNearbyPharmaciesEqual = (prevList = [], nextList = []) => {
+  if (prevList === nextList) return true;
+  if (prevList.length !== nextList.length) return false;
+  for (let i = 0; i < prevList.length; i += 1) {
+    const prev = prevList[i];
+    const next = nextList[i];
+    if ((prev?.id || '') !== (next?.id || '')) return false;
+    if ((prev?.is_on_call || false) !== (next?.is_on_call || false)) return false;
+    if ((prev?.is_verified || false) !== (next?.is_verified || false)) return false;
+    if ((prev?.updated_at || '') !== (next?.updated_at || '')) return false;
+    const prevDistance = Number(prev?.distance_km ?? prev?.distance ?? 0);
+    const nextDistance = Number(next?.distance_km ?? next?.distance ?? 0);
+    if (Math.abs(prevDistance - nextDistance) > 0.001) return false;
+  }
+  return true;
+};
+
+const areRecipientsEqual = (prevList = [], nextList = []) => {
+  if (prevList === nextList) return true;
+  if (prevList.length !== nextList.length) return false;
+  for (let i = 0; i < prevList.length; i += 1) {
+    const prev = prevList[i];
+    const next = nextList[i];
+    if ((prev?.request_id || '') !== (next?.request_id || '')) return false;
+    if ((prev?.pharmacy_id || '') !== (next?.pharmacy_id || '')) return false;
+    if ((prev?.status || '') !== (next?.status || '')) return false;
+    if ((prev?.responded_at || '') !== (next?.responded_at || '')) return false;
+  }
+  return true;
+};
+
+const areMyRequestsEqual = (prevList = [], nextList = []) => {
+  if (prevList === nextList) return true;
+  if (prevList.length !== nextList.length) return false;
+  for (let i = 0; i < prevList.length; i += 1) {
+    const prev = prevList[i];
+    const next = nextList[i];
+    if ((prev?.id || '') !== (next?.id || '')) return false;
+    if ((prev?.status || '') !== (next?.status || '')) return false;
+    if ((prev?.updated_at || '') !== (next?.updated_at || '')) return false;
+    if ((prev?.selected_pharmacy_id || '') !== (next?.selected_pharmacy_id || '')) return false;
+    if ((prev?.expires_at || '') !== (next?.expires_at || '')) return false;
+    const prevRecipients = Array.isArray(prev?.patient_request_recipients) ? prev.patient_request_recipients : [];
+    const nextRecipients = Array.isArray(next?.patient_request_recipients) ? next.patient_request_recipients : [];
+    if (!areRecipientsEqual(prevRecipients, nextRecipients)) return false;
+  }
+  return true;
+};
+
 export default function PatientDashboardLazy() {
   const { user, session, loading: authLoading, profile, signOut, profileStatus } = useAuth();
+  const userId = user?.id || null;
   const { t, language } = useLanguage();
   const { seniorMode } = useSeniorMode();
   const { unreadCount } = useNotifications();
@@ -99,14 +152,11 @@ export default function PatientDashboardLazy() {
   const [pharmacies, setPharmacies] = useState([]);
   const [nearbyPharmacies, setNearbyPharmacies] = useState([]);
   const [favorites, setFavorites] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !patientDashboardUiCache.nearbyLoaded);
+  const [nearbyRefreshing, setNearbyRefreshing] = useState(false);
+  const [nearbyDisabled, setNearbyDisabled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [viewMode, setViewMode] = useState('list'); // 'list' or 'map'
-  const [inventorySearchQuery, setInventorySearchQuery] = useState('');
-  const [inventoryMatchPharmacyIds, setInventoryMatchPharmacyIds] = useState([]);
-  const [inventoryProductSuggestions, setInventoryProductSuggestions] = useState([]);
-  const [inventorySearchLoading, setInventorySearchLoading] = useState(false);
-  const [inventoryRefreshTick, setInventoryRefreshTick] = useState(0);
   const [requestDialogOpen, setRequestDialogOpen] = useState(false);
   const [requestMedicine, setRequestMedicine] = useState('');
   const [requestDosage, setRequestDosage] = useState('');
@@ -118,12 +168,16 @@ export default function PatientDashboardLazy() {
   const [choosingPharmacyId, setChoosingPharmacyId] = useState(null);
   const [myRequests, setMyRequests] = useState([]);
   const [requestsLoading, setRequestsLoading] = useState(false);
+  const [requestsRefreshing, setRequestsRefreshing] = useState(false);
   const [acceptedCancelCountThisMonth, setAcceptedCancelCountThisMonth] = useState(0);
   const remainingAcceptedCancels = Math.max(0, 3 - acceptedCancelCountThisMonth);
   const initFetchSessionRef = useRef(null);
   const initLightFetchSessionRef = useRef(null);
-  const [deferMount, setDeferMount] = useState(false);
-  const [lightStageReady, setLightStageReady] = useState(false);
+  const nearbyLoadedRef = useRef(patientDashboardUiCache.nearbyLoaded);
+  const requestsLoadedRef = useRef(false);
+  const myRequestsRef = useRef([]);
+  const [deferMount, setDeferMount] = useState(patientDashboardUiCache.deferMountReady);
+  const [lightStageReady, setLightStageReady] = useState(patientDashboardUiCache.lightStageReady);
   const canLoadLight = isProfileReady && lightStageReady;
   const canLoadData = isProfileReady && deferMount && lightStageReady;
   const radiusKm = useMemo(() => {
@@ -139,10 +193,7 @@ export default function PatientDashboardLazy() {
   const hasLocation = Number.isFinite(userLocation?.lat) && Number.isFinite(userLocation?.lng);
   const hasRadius = Number.isFinite(radiusKm) && radiusKm > 0;
   const canQueryNearby = hasLocation && hasRadius;
-  const nearbyPharmacyIds = useMemo(
-    () => (nearbyPharmacies || []).map((pharmacy) => pharmacy?.id).filter(Boolean),
-    [nearbyPharmacies]
-  );
+  const showNearbyDisabledState = nearbyDisabled || !canQueryNearby;
 
   // Fetch pharmacies
   const fetchPharmacies = useCallback(async () => {
@@ -163,12 +214,24 @@ export default function PatientDashboardLazy() {
   const fetchNearbyPharmacies = useCallback(async () => {
     if (!canLoadData) return;
     if (!canQueryNearby) {
-      setNearbyPharmacies([]);
-      setLoading(false);
+      setNearbyDisabled(true);
+      if (!nearbyLoadedRef.current) {
+        setNearbyPharmacies((prev) => (prev.length === 0 ? prev : []));
+        setLoading(false);
+        nearbyLoadedRef.current = true;
+      patientDashboardUiCache.nearbyLoaded = true;
+      }
+      setNearbyRefreshing(false);
       return;
     }
 
-    setLoading(true);
+    setNearbyDisabled(false);
+    const isInitialLoad = !nearbyLoadedRef.current;
+    if (isInitialLoad) {
+      setLoading(true);
+    } else {
+      setNearbyRefreshing(true);
+    }
     try {
       const { data, error } = await supabase
         .rpc('get_nearby_pharmacies', {
@@ -192,42 +255,55 @@ export default function PatientDashboardLazy() {
         console.log('[PatientDashboard] nearby list count', pharmacyData.length);
       }
 
-      setNearbyPharmacies(pharmacyData);
+      setNearbyPharmacies((prev) => (areNearbyPharmaciesEqual(prev, pharmacyData) ? prev : pharmacyData));
+      nearbyLoadedRef.current = true;
+      patientDashboardUiCache.nearbyLoaded = true;
     } catch (error) {
       console.error('Error fetching nearby pharmacies:', error);
-      setNearbyPharmacies([]);
+      if (isInitialLoad) {
+        setNearbyPharmacies((prev) => (prev.length === 0 ? prev : []));
+      }
     } finally {
       setLoading(false);
+      setNearbyRefreshing(false);
     }
   }, [canLoadData, canQueryNearby, radiusKm, userLocation]);
 
   // Fetch user favorites
   const fetchFavorites = useCallback(async () => {
     if (!canLoadLight) return;
-    if (!user) return;
+    if (!userId) return;
     try {
       const { data, error } = await supabase
         .from('favorites')
         .select('pharmacy_id')
-        .eq('user_id', user.id);
+        .eq('user_id', userId);
 
       if (error) throw error;
       setFavorites((data || []).map(f => f.pharmacy_id));
     } catch (error) {
       console.error('Error fetching favorites:', error);
     }
-  }, [canLoadLight, user]);
+  }, [canLoadLight, userId]);
 
   // Fetch patient requests
-  const fetchMyRequests = useCallback(async () => {
+  const fetchMyRequests = useCallback(async (options = {}) => {
     if (!canLoadData) return;
-    if (!user) {
-      setMyRequests([]);
+    if (!userId) {
+      setMyRequests((prev) => (prev.length === 0 ? prev : []));
       setRequestsLoading(false);
+      setRequestsRefreshing(false);
+      requestsLoadedRef.current = false;
+      myRequestsRef.current = [];
       return;
     }
 
-    setRequestsLoading(true);
+    const isInitialLoad = !requestsLoadedRef.current;
+    const useInitialLoading = isInitialLoad && options?.silent !== true;
+    let didChange = false;
+    if (useInitialLoading) {
+      setRequestsLoading(true);
+    }
     try {
       const nowIso = new Date().toISOString();
       const { error: expireError } = await supabase
@@ -244,7 +320,7 @@ export default function PatientDashboardLazy() {
       const { data, error } = await supabase
         .from('patient_requests')
         .select('*')
-        .eq('patient_id', user.id)
+        .eq('patient_id', userId)
         .in('status', ['pending', 'accepted', 'cancelled', 'rejected', 'expired', 'executed', 'closed'])
         .order('created_at', { ascending: false });
 
@@ -252,7 +328,15 @@ export default function PatientDashboardLazy() {
       const requests = data || [];
 
       if (requests.length === 0) {
-        setMyRequests([]);
+        const prevList = myRequestsRef.current || [];
+        const nextList = prevList.length === 0 ? prevList : [];
+        didChange = nextList !== prevList;
+        if (!useInitialLoading && didChange) {
+          setRequestsRefreshing(true);
+        }
+        setMyRequests(nextList);
+        myRequestsRef.current = nextList;
+        requestsLoadedRef.current = true;
         return;
       }
 
@@ -283,23 +367,37 @@ export default function PatientDashboardLazy() {
         return acc;
       }, {});
 
-      setMyRequests(
-        requests.map(request => ({
+      const nextRequests = requests.map(request => ({
           ...request,
           patient_request_recipients: recipientsByRequest[request.id] || []
-        }))
-      );
+      }));
+      const prevList = myRequestsRef.current || [];
+      const stableNext = areMyRequestsEqual(prevList, nextRequests) ? prevList : nextRequests;
+      didChange = stableNext !== prevList;
+      if (!useInitialLoading && didChange) {
+        setRequestsRefreshing(true);
+      }
+      setMyRequests(stableNext);
+      myRequestsRef.current = stableNext;
+      requestsLoadedRef.current = true;
     } catch (error) {
       console.error('Error fetching requests:', error);
     } finally {
       setRequestsLoading(false);
+      if (!useInitialLoading && didChange) {
+        setRequestsRefreshing(false);
+      }
     }
-  }, [canLoadData, user]);
+  }, [canLoadData, userId]);
+
+  useEffect(() => {
+    myRequestsRef.current = myRequests;
+  }, [myRequests]);
 
   // Fetch accepted-cancel monthly usage
   const fetchAcceptedCancelCount = useCallback(async () => {
     if (!canLoadLight) return;
-    if (!user) return;
+    if (!userId) return;
     try {
       const now = new Date();
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -308,7 +406,7 @@ export default function PatientDashboardLazy() {
       const { data, error } = await supabase
         .from('patient_requests')
         .select('id', { count: 'exact' })
-        .eq('patient_id', user.id)
+        .eq('patient_id', userId)
         .eq('status', 'cancelled')
         .eq('cancelled_by', 'patient')
         .eq('cancel_kind', 'accepted')
@@ -323,12 +421,12 @@ export default function PatientDashboardLazy() {
     } catch (err) {
       console.error('Error fetching accepted cancel count:', err);
     }
-  }, [canLoadLight, user]);
+  }, [canLoadLight, userId]);
 
 
   // Toggle favorite
   const toggleFavorite = async (pharmacyId) => {
-    if (!user) {
+    if (!userId) {
       toast.error(language === 'el' ? 'Συνδεθείτε για αποθήκευση' : 'Sign in to save');
       return;
     }
@@ -340,7 +438,7 @@ export default function PatientDashboardLazy() {
         await supabase
           .from('favorites')
           .delete()
-          .eq('user_id', user.id)
+          .eq('user_id', userId)
           .eq('pharmacy_id', pharmacyId);
         
         setFavorites(prev => prev.filter(id => id !== pharmacyId));
@@ -348,7 +446,7 @@ export default function PatientDashboardLazy() {
       } else {
         await supabase
           .from('favorites')
-          .insert({ user_id: user.id, pharmacy_id: pharmacyId });
+          .insert({ user_id: userId, pharmacy_id: pharmacyId });
         
         setFavorites(prev => [...prev, pharmacyId]);
         toast.success(language === 'el' ? 'Προστέθηκε στα αγαπημένα' : 'Added to favorites');
@@ -360,7 +458,7 @@ export default function PatientDashboardLazy() {
 
   // Create patient request
   const sendPatientRequest = async () => {
-    if (!user) {
+    if (!userId) {
       toast.error(t('requestSignInRequired'));
       return;
     }
@@ -394,7 +492,7 @@ export default function PatientDashboardLazy() {
       const { data: requestRow, error: requestError } = await supabase
         .from('patient_requests')
         .insert({
-          patient_id: user.id,
+          patient_id: userId,
           medicine_query: requestMedicine.trim(),
           dosage: requestDosage || null,
           form: requestForm || null,
@@ -440,7 +538,7 @@ export default function PatientDashboardLazy() {
   };
 
   const cancelPatientRequest = async (requestId, request) => {
-    if (!user || !requestId) return;
+    if (!userId || !requestId) return;
     if (isDev) {
       console.log('[cancel] requestId:', requestId, 'type:', typeof requestId);
       console.log('[cancel click] request object:', request);
@@ -474,7 +572,7 @@ export default function PatientDashboardLazy() {
   };
 
   const choosePharmacyForRequest = async (requestId, pharmacyId) => {
-    if (!user || !requestId || !pharmacyId) return;
+    if (!userId || !requestId || !pharmacyId) return;
     const actionId = `${requestId}:${pharmacyId}`;
     setChoosingPharmacyId(actionId);
     try {
@@ -551,13 +649,6 @@ export default function PatientDashboardLazy() {
 
   const formatPharmacyHours = (hoursValue) => formatWeeklyHours(hoursValue);
 
-  const filteredNearbyPharmacies = useMemo(() => {
-    const query = inventorySearchQuery.trim();
-    if (query.length < 2) return nearbyPharmacies;
-    const matchSet = new Set(inventoryMatchPharmacyIds);
-    return nearbyPharmacies.filter((pharmacy) => matchSet.has(pharmacy?.id));
-  }, [nearbyPharmacies, inventorySearchQuery, inventoryMatchPharmacyIds]);
-
   const getTargetPharmacyIds = (pharmacyList = []) => {
     const target = [];
     const favoriteIds = new Set(favorites || []);
@@ -596,9 +687,14 @@ export default function PatientDashboardLazy() {
   };
 
   useEffect(() => {
+    if (deferMount) return;
+    const markReady = () => {
+      patientDashboardUiCache.deferMountReady = true;
+      setDeferMount(true);
+    };
     const id = typeof requestIdleCallback === 'function'
-      ? requestIdleCallback(() => setDeferMount(true))
-      : setTimeout(() => setDeferMount(true), 0);
+      ? requestIdleCallback(markReady)
+      : setTimeout(markReady, 0);
     return () => {
       if (typeof id === 'number') {
         clearTimeout(id);
@@ -606,16 +702,24 @@ export default function PatientDashboardLazy() {
         cancelIdleCallback(id);
       }
     };
-  }, []);
+  }, [deferMount]);
 
   useEffect(() => {
     if (!isProfileReady) {
       setLightStageReady(false);
       return;
     }
-    const timer = setTimeout(() => setLightStageReady(true), 200);
+    if (lightStageReady) return;
+    if (patientDashboardUiCache.lightStageReady) {
+      setLightStageReady(true);
+      return;
+    }
+    const timer = setTimeout(() => {
+      patientDashboardUiCache.lightStageReady = true;
+      setLightStageReady(true);
+    }, 200);
     return () => clearTimeout(timer);
-  }, [isProfileReady]);
+  }, [isProfileReady, lightStageReady]);
 
   // Get location on mount
   useEffect(() => {
@@ -624,124 +728,56 @@ export default function PatientDashboardLazy() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deferMount]);
 
-  // Refetch pharmacies when location changes
+  // Nearby pharmacies fetch (single trigger path)
   useEffect(() => {
     if (!canLoadData) return;
-    if (userLocation) {
-      fetchNearbyPharmacies();
-    }
-  }, [canLoadData, userLocation, fetchNearbyPharmacies]);
+    fetchNearbyPharmacies();
+  }, [canLoadData, canQueryNearby, radiusKm, userLocation?.lat, userLocation?.lng, fetchNearbyPharmacies]);
 
   // Light prefetch
   useEffect(() => {
     if (!canLoadLight) return;
     if (authLoading) return;
-    const sessionKey = session?.access_token || session?.user?.id || user?.id || 'anon';
+    const sessionKey = userId || 'anon';
     if (initLightFetchSessionRef.current === sessionKey) return;
     initLightFetchSessionRef.current = sessionKey;
     const init = async () => {
       await Promise.all([fetchFavorites(), fetchAcceptedCancelCount()]);
     };
     init();
-  }, [authLoading, fetchFavorites, fetchAcceptedCancelCount, user, session, canLoadLight]);
+  }, [authLoading, fetchFavorites, fetchAcceptedCancelCount, userId, canLoadLight]);
 
   // Initial fetch
   useEffect(() => {
     if (!canLoadData) return;
     if (authLoading) return;
-    const sessionKey = session?.access_token || session?.user?.id || user?.id || 'anon';
+    const sessionKey = userId || 'anon';
     if (initFetchSessionRef.current === sessionKey) return;
     initFetchSessionRef.current = sessionKey;
-  const init = async () => {
-      await Promise.all([fetchPharmacies(), fetchNearbyPharmacies(), fetchMyRequests()]);
+    const init = async () => {
+      await Promise.all([fetchPharmacies(), fetchMyRequests()]);
     };
     init();
-  }, [authLoading, fetchPharmacies, fetchNearbyPharmacies, fetchMyRequests, user, session, canLoadData]);
-
-  useEffect(() => {
-    if (!canLoadData) return;
-    if (!canQueryNearby) return;
-    fetchNearbyPharmacies();
-  }, [canLoadData, canQueryNearby, fetchNearbyPharmacies, userLocation, radiusKm]);
-
-  useEffect(() => {
-    const query = inventorySearchQuery.trim();
-    if (!canQueryNearby || query.length < 2 || nearbyPharmacyIds.length === 0) {
-      setInventoryMatchPharmacyIds([]);
-      setInventoryProductSuggestions([]);
-      setInventorySearchLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    const timer = setTimeout(async () => {
-      setInventorySearchLoading(true);
-      try {
-        const result = await findPharmacyIdsByProductQuery({
-          query,
-          pharmacyIds: nearbyPharmacyIds,
-          associationStatus: 'active'
-        });
-        if (!cancelled) {
-          setInventoryMatchPharmacyIds(result?.pharmacyIds || []);
-          setInventoryProductSuggestions((result?.products || []).slice(0, 6));
-        }
-      } catch (error) {
-        console.error('Patient inventory search failed:', error);
-        if (!cancelled) {
-          setInventoryMatchPharmacyIds([]);
-          setInventoryProductSuggestions([]);
-        }
-      } finally {
-        if (!cancelled) setInventorySearchLoading(false);
-      }
-    }, 300);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [inventorySearchQuery, nearbyPharmacyIds, canQueryNearby, inventoryRefreshTick]);
-
-  useEffect(() => {
-    if (!canLoadData) return;
-    const inventoryChannel = supabase
-      .channel('patient_inventory_search')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'pharmacy_inventory' },
-        () => setInventoryRefreshTick((tick) => tick + 1)
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'product_catalog' },
-        () => setInventoryRefreshTick((tick) => tick + 1)
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(inventoryChannel);
-    };
-  }, [canLoadData]);
+  }, [authLoading, fetchPharmacies, fetchMyRequests, userId, canLoadData]);
 
   // Subscribe to patient request updates
   useEffect(() => {
     if (!canLoadData) return;
-    if (!user) return;
+    if (!userId) return;
 
     const channel = supabase
-      .channel(`patient_requests:${user.id}`)
+      .channel(`patient_requests:${userId}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'patient_requests', filter: `patient_id=eq.${user.id}` },
-        () => fetchMyRequests()
+        { event: '*', schema: 'public', table: 'patient_requests', filter: `patient_id=eq.${userId}` },
+        () => fetchMyRequests({ silent: true })
       )
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user, fetchMyRequests, canLoadData]);
+  }, [userId, fetchMyRequests, canLoadData]);
 
   if (!isProfileReady || !deferMount) {
     return (
@@ -955,6 +991,7 @@ export default function PatientDashboardLazy() {
           <PatientRequestsList
             requests={myRequests}
             requestsLoading={requestsLoading}
+            requestsRefreshing={requestsRefreshing}
             remainingAcceptedCancels={remainingAcceptedCancels}
             cancelPatientRequest={cancelPatientRequest}
             cancelingId={cancelingId}
@@ -1011,53 +1048,18 @@ export default function PatientDashboardLazy() {
               </div>
             </div>
 
-            <div className="relative mb-3">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-pharma-slate-grey" />
-              <Input
-                value={inventorySearchQuery}
-                onChange={(e) => setInventorySearchQuery(e.target.value)}
-                placeholder={language === 'el' ? 'Αναζήτηση προϊόντος καταλόγου...' : 'Search catalog product...'}
-                className="h-10 pl-9 rounded-xl border-pharma-grey-pale"
-                data-testid="patient-inventory-search-input"
-              />
-            </div>
-            {inventorySearchQuery.trim().length >= 2 && inventoryProductSuggestions.length > 0 && (
-              <div className="mb-3 rounded-xl border border-pharma-grey-pale bg-white p-2">
-                <p className="mb-1 text-xs text-pharma-slate-grey">
-                  {language === 'el' ? 'Προτάσεις προϊόντων' : 'Product suggestions'}
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {inventoryProductSuggestions.map((product) => {
-                    const label = getProductSuggestionLabel(product, language);
-                    return (
-                      <button
-                        key={product.id}
-                        type="button"
-                        className="rounded-full border border-pharma-grey-pale bg-pharma-ice-blue px-3 py-1 text-xs text-pharma-charcoal hover:border-pharma-teal/40"
-                        onClick={() => setInventorySearchQuery(label)}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-            {inventorySearchQuery.trim().length >= 2 && (
-              <p className="text-xs text-pharma-slate-grey mb-3">
-                {inventorySearchLoading
-                  ? (language === 'el' ? 'Αναζήτηση συσχετίσεων προϊόντων...' : 'Searching product associations...')
-                  : (filteredNearbyPharmacies.length > 0
-                    ? (language === 'el'
-                      ? `Βρέθηκαν ${filteredNearbyPharmacies.length} κοντινά φαρμακεία που το διαχειρίζονται.`
-                      : `Found ${filteredNearbyPharmacies.length} nearby pharmacies associated with this product.`)
-                    : (language === 'el'
-                      ? 'Δεν βρέθηκαν κοντινά συσχετισμένα φαρμακεία για αυτό το προϊόν.'
-                      : 'No nearby associated pharmacies found for this product.'))}
-              </p>
-            )}
 
-            {!canQueryNearby ? (
+            <div className="mb-3 min-h-[18px] text-xs text-pharma-slate-grey">
+              {nearbyRefreshing && !loading ? (
+                language === 'el' ? '������� ��������� �������� ����������...' : 'Updating nearby pharmacies...'
+              ) : (
+                <span className="invisible">
+                  {language === 'el' ? '������� ��������� �������� ����������...' : 'Updating nearby pharmacies...'}
+                </span>
+              )}
+            </div>
+
+            {showNearbyDisabledState ? (
               <EmptyState
                 icon={MapPin}
                 title={
@@ -1092,7 +1094,7 @@ export default function PatientDashboardLazy() {
                   <Suspense fallback={<div className="mb-4 h-[350px] w-full rounded-2xl bg-white/70 shadow-sm animate-pulse" />}>
                     <div className="mb-4">
                       <PharmacyMap 
-                        pharmacies={filteredNearbyPharmacies}
+                        pharmacies={nearbyPharmacies}
                         userLocation={userLocation}
                         height="350px"
                         className="shadow-md"
@@ -1103,18 +1105,16 @@ export default function PatientDashboardLazy() {
 
                 {/* List View */}
                 {viewMode === 'list' && (
-                  loading ? (
+                  (loading && nearbyPharmacies.length === 0) ? (
                     <SkeletonList count={3} CardComponent={SkeletonPharmacyCard} />
-                  ) : filteredNearbyPharmacies.length === 0 ? (
+                  ) : nearbyPharmacies.length === 0 ? (
                     <EmptyState 
                       icon={MapPin}
-                      title={inventorySearchQuery.trim().length >= 2
-                        ? (language === 'el' ? 'Δεν βρέθηκαν φαρμακεία με αυτό το προϊόν.' : 'No pharmacies found for this product.')
-                        : (language === 'el' ? 'Δεν βρέθηκαν κοντινά φαρμακεία.' : 'No nearby pharmacies found.')}
+                      title={language === 'el' ? '��� �������� ������� ���������.' : 'No nearby pharmacies found.'}
                     />
                   ) : (
                     <div className="space-y-3">
-                      {filteredNearbyPharmacies.map((pharmacy) => {
+                      {nearbyPharmacies.map((pharmacy) => {
                         const hoursLabel = formatPharmacyHours(pharmacy.hours);
                         const distanceKm = pharmacy.distance_km ?? pharmacy.distance;
                         return (

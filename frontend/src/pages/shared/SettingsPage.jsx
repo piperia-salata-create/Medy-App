@@ -165,7 +165,7 @@ export default function SettingsPage() {
 
         {/* App Version */}
         <p className="text-center text-xs text-pharma-silver pt-2">
-          Medy v1.0.0
+          Medy App v1.0.0 - By PixelPro.Solutions
         </p>
       </main>
     </div>

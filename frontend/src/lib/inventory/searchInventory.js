@@ -20,16 +20,22 @@ const uniqueByKey = (rows, key) => {
 
 const uniqueValues = (rows, key) => uniqueByKey(rows, key).map((row) => row?.[key]).filter(Boolean);
 
-export const searchCatalogProducts = async ({ query, maxProducts = 120 } = {}) => {
+export const searchCatalogProducts = async ({
+  query,
+  maxProducts = 120,
+  catalogTable = 'product_catalog',
+  catalogSchema = null
+} = {}) => {
   const cleaned = normalizeCatalogQuery(query);
   if (!cleaned || cleaned.length < 2) {
     return { products: [] };
   }
 
   const likePattern = `%${cleaned}%`;
+  const catalogClient = catalogSchema ? supabase.schema(catalogSchema) : supabase;
 
-  const { data, error } = await supabase
-    .from('product_catalog')
+  const { data, error } = await catalogClient
+    .from(catalogTable)
     .select('id, category, name_el, name_en, name_el_norm, name_en_norm, barcode')
     .or(`name_el_norm.ilike.${likePattern},name_en_norm.ilike.${likePattern},barcode.ilike.${likePattern}`)
     .limit(maxProducts);
@@ -46,21 +52,26 @@ export const findPharmacyIdsByProductQuery = async ({
   pharmacyIds = [],
   excludePharmacyIds = [],
   maxProducts = 120,
-  associationStatus = null
+  associationStatus = null,
+  catalogTable = 'product_catalog',
+  inventoryTable = 'pharmacy_inventory',
+  catalogSchema = null,
+  inventorySchema = null
 } = {}) => {
-  const { products } = await searchCatalogProducts({ query, maxProducts });
+  const { products } = await searchCatalogProducts({ query, maxProducts, catalogTable, catalogSchema });
   const productIds = uniqueValues(products, 'id').slice(0, maxProducts);
 
   if (productIds.length === 0) {
     return { pharmacyIds: [], productIds: [], products: [] };
   }
 
-  let inventoryQuery = supabase
-    .from('pharmacy_inventory')
+  const inventoryClient = inventorySchema ? supabase.schema(inventorySchema) : supabase;
+  let inventoryQuery = inventoryClient
+    .from(inventoryTable)
     .select('pharmacy_id, product_id')
     .in('product_id', productIds);
 
-  if (associationStatus) {
+  if (associationStatus && inventoryTable === 'pharmacy_inventory') {
     inventoryQuery = inventoryQuery.eq('association_status', associationStatus);
   }
 

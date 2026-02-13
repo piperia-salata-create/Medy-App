@@ -17,6 +17,7 @@ const SignInPage = lazy(() => import("./pages/auth/SignInPage"));
 const SignUpPage = lazy(() => import("./pages/auth/SignUpPage"));
 const VerifyOtpPage = lazy(() => import("./pages/auth/VerifyOtpPage"));
 const FavoritesPage = lazy(() => import("./pages/patient/FavoritesPage"));
+const PatientPharmaciesPage = lazy(() => import("./pages/patient/PatientPharmaciesPage"));
 const PharmacyDetailPage = lazy(() => import("./pages/patient/PharmacyDetailPage"));
 const RemindersPage = lazy(() => import("./pages/patient/RemindersPage"));
 const InterPharmacyPage = lazy(() => import("./pages/pharmacist/InterPharmacyPage"));
@@ -60,11 +61,14 @@ const NeutralSkeleton = memo(() => (
   </div>
 ));
 
-const NeutralRouteFallback = () => (
-  <NeutralShell>
-    <NeutralSkeleton />
-  </NeutralShell>
-);
+const NeutralRouteFallback = memo(() => (
+  <div className="pointer-events-none fixed right-3 top-3 z-[70] rounded-full border border-pharma-grey-pale bg-white/95 px-3 py-1.5 shadow-sm">
+    <div className="flex items-center gap-2">
+      <span className="h-2 w-2 rounded-full bg-pharma-teal animate-pulse" />
+      <span className="text-xs text-pharma-slate-grey">Loading...</span>
+    </div>
+  </div>
+));
 
 const ProtectedSuspense = ({ children }) => (
   <Suspense fallback={<NeutralRouteFallback />}>
@@ -72,10 +76,29 @@ const ProtectedSuspense = ({ children }) => (
   </Suspense>
 );
 const PublicSuspense = ({ children }) => (
-  <Suspense fallback={<div className="min-h-screen bg-pharma-ice-blue" />}>
+  <Suspense fallback={
+    <div className="pointer-events-none fixed right-3 top-3 z-[70] rounded-full border border-pharma-grey-pale bg-white/95 px-3 py-1.5 shadow-sm">
+      <div className="flex items-center gap-2">
+        <span className="h-2 w-2 rounded-full bg-pharma-teal animate-pulse" />
+        <span className="text-xs text-pharma-slate-grey">Loading...</span>
+      </div>
+    </div>
+  }>
     {children}
   </Suspense>
 );
+
+const PatientRoleShell = memo(() => (
+  <div className="min-h-screen bg-pharma-ice-blue">
+    <Outlet />
+  </div>
+));
+
+const PharmacistRoleShell = memo(() => (
+  <div className="min-h-screen bg-pharma-ice-blue">
+    <Outlet />
+  </div>
+));
 
 // Protected Route Component
 const ProtectedRoute = ({ children, requiredRole }) => {
@@ -92,6 +115,10 @@ const ProtectedRoute = ({ children, requiredRole }) => {
     isPatient,
     bootstrapAuth
   } = useProfileState();
+  const hasResolvedReadyRef = React.useRef(false);
+  if (profileStatus === 'ready') {
+    hasResolvedReadyRef.current = true;
+  }
 
   if (!hasSession) {
     return <Navigate to="/signin" replace />;
@@ -130,7 +157,7 @@ const ProtectedRoute = ({ children, requiredRole }) => {
     );
   }
 
-  if (profileStatus !== 'ready') {
+  if (profileStatus !== 'ready' && !hasResolvedReadyRef.current) {
     return (
       <NeutralShell>
         <NeutralSkeleton />
@@ -175,6 +202,10 @@ const PublicRoute = ({ children }) => {
     isPharmacist,
     bootstrapAuth
   } = useProfileState();
+  const hasResolvedReadyRef = React.useRef(false);
+  if (profileStatus === 'ready') {
+    hasResolvedReadyRef.current = true;
+  }
 
   if (profileError) {
     const errorMessage = profileError === 'SUPABASE_UNREACHABLE'
@@ -209,7 +240,7 @@ const PublicRoute = ({ children }) => {
     );
   }
 
-  if (hasSession && profileStatus !== 'ready') {
+  if (hasSession && user && profileStatus !== 'ready' && !hasResolvedReadyRef.current) {
     return (
       <NeutralShell>
         <NeutralSkeleton />
@@ -271,129 +302,102 @@ function AppRoutes() {
       {/* Patient Routes */}
       <Route path="/patient" element={
         <ProtectedRoute requiredRole="patient">
-          <PatientDashboard />
+          <PatientRoleShell />
         </ProtectedRoute>
-      } />
-      <Route path="/patient/dashboard" element={
-        <ProtectedRoute requiredRole="patient">
-          <PatientDashboard />
-        </ProtectedRoute>
-      } />
-      <Route path="/patient/favorites" element={
-        <ProtectedRoute requiredRole="patient">
+      }>
+        <Route index element={<PatientDashboard />} />
+        <Route path="dashboard" element={<PatientDashboard />} />
+        <Route path="favorites" element={
           <ProtectedSuspense>
             <FavoritesPage />
           </ProtectedSuspense>
-        </ProtectedRoute>
-      } />
-      <Route path="/patient/pharmacy/:id" element={
-        <ProtectedRoute requiredRole="patient">
+        } />
+        <Route path="pharmacies" element={
+          <ProtectedSuspense>
+            <PatientPharmaciesPage />
+          </ProtectedSuspense>
+        } />
+        <Route path="pharmacy/:id" element={
           <ProtectedSuspense>
             <PharmacyDetailPage />
           </ProtectedSuspense>
-        </ProtectedRoute>
-      } />
-      <Route path="/patient/reminders" element={
-        <ProtectedRoute requiredRole="patient">
+        } />
+        <Route path="reminders" element={
           <ProtectedSuspense>
             <RemindersPage />
           </ProtectedSuspense>
-        </ProtectedRoute>
-      } />
-      <Route path="/patient/notifications" element={
-        <ProtectedRoute requiredRole="patient">
+        } />
+        <Route path="notifications" element={
           <ProtectedSuspense>
             <NotificationsPage />
           </ProtectedSuspense>
-        </ProtectedRoute>
-      } />
-      <Route path="/patient/settings" element={
-        <ProtectedRoute requiredRole="patient">
-          <Outlet />
-        </ProtectedRoute>
-      }>
-        <Route index element={
-          <ProtectedSuspense>
-            <SettingsPage />
-          </ProtectedSuspense>
         } />
-        <Route path="profile" element={
-          <ProtectedSuspense>
-            <SettingsProfilePage />
-          </ProtectedSuspense>
-        } />
-        <Route path="*" element={<Navigate to="/patient/settings" replace />} />
+        <Route path="settings" element={<Outlet />}>
+          <Route index element={
+            <ProtectedSuspense>
+              <SettingsPage />
+            </ProtectedSuspense>
+          } />
+          <Route path="profile" element={
+            <ProtectedSuspense>
+              <SettingsProfilePage />
+            </ProtectedSuspense>
+          } />
+          <Route path="*" element={<Navigate to="/patient/settings" replace />} />
+        </Route>
       </Route>
 
       {/* Pharmacist Routes */}
       <Route path="/pharmacist" element={
         <ProtectedRoute requiredRole="pharmacist">
-          <PharmacistDashboard />
+          <PharmacistRoleShell />
         </ProtectedRoute>
-      } />
-      <Route path="/pharmacist/dashboard" element={
-        <ProtectedRoute requiredRole="pharmacist">
-          <PharmacistDashboard />
-        </ProtectedRoute>
-      } />
-      <Route path="/pharmacist/inter-pharmacy" element={
-        <ProtectedRoute requiredRole="pharmacist">
+      }>
+        <Route index element={<PharmacistDashboard />} />
+        <Route path="dashboard" element={<PharmacistDashboard />} />
+        <Route path="inter-pharmacy" element={
           <ProtectedSuspense>
             <InterPharmacyPage />
           </ProtectedSuspense>
-        </ProtectedRoute>
-      } />
-      <Route path="/pharmacist/patient-requests" element={
-        <ProtectedRoute requiredRole="pharmacist">
+        } />
+        <Route path="patient-requests" element={
           <ProtectedSuspense>
             <PharmacistPatientRequestsPage />
           </ProtectedSuspense>
-        </ProtectedRoute>
-      } />
-      <Route path="/pharmacist/pharmacy/new" element={
-        <ProtectedRoute requiredRole="pharmacist">
+        } />
+        <Route path="pharmacy/new" element={
           <ProtectedSuspense>
             <PharmacyCreatePage />
           </ProtectedSuspense>
-        </ProtectedRoute>
-      } />
-      <Route path="/pharmacist/inventory" element={
-        <ProtectedRoute requiredRole="pharmacist">
+        } />
+        <Route path="inventory" element={
           <ProtectedSuspense>
             <InventoryPage />
           </ProtectedSuspense>
-        </ProtectedRoute>
-      } />
-      <Route path="/pharmacist/connections" element={
-        <ProtectedRoute requiredRole="pharmacist">
+        } />
+        <Route path="connections" element={
           <ProtectedSuspense>
             <PharmacistConnectionsPage />
           </ProtectedSuspense>
-        </ProtectedRoute>
-      } />
-      <Route path="/pharmacist/notifications" element={
-        <ProtectedRoute requiredRole="pharmacist">
+        } />
+        <Route path="notifications" element={
           <ProtectedSuspense>
             <NotificationsPage />
           </ProtectedSuspense>
-        </ProtectedRoute>
-      } />
-      <Route path="/pharmacist/settings" element={
-        <ProtectedRoute requiredRole="pharmacist">
-          <Outlet />
-        </ProtectedRoute>
-      }>
-        <Route index element={
-          <ProtectedSuspense>
-            <SettingsPage />
-          </ProtectedSuspense>
         } />
-        <Route path="profile" element={
-          <ProtectedSuspense>
-            <SettingsProfilePage />
-          </ProtectedSuspense>
-        } />
-        <Route path="*" element={<Navigate to="/pharmacist/settings" replace />} />
+        <Route path="settings" element={<Outlet />}>
+          <Route index element={
+            <ProtectedSuspense>
+              <SettingsPage />
+            </ProtectedSuspense>
+          } />
+          <Route path="profile" element={
+            <ProtectedSuspense>
+              <SettingsProfilePage />
+            </ProtectedSuspense>
+          } />
+          <Route path="*" element={<Navigate to="/pharmacist/settings" replace />} />
+        </Route>
       </Route>
 
       {/* Catch all - redirect to home */}

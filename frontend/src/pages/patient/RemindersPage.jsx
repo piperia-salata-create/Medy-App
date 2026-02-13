@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -25,7 +25,8 @@ import {
 const isDev = process.env.NODE_ENV !== 'production';
 
 export default function RemindersPage() {
-  const { user, session, loading: authLoading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
+  const userId = user?.id || null;
   const { t, language } = useLanguage();
   
   const [reminders, setReminders] = useState([]);
@@ -33,6 +34,7 @@ export default function RemindersPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingReminder, setEditingReminder] = useState(null);
   const [saving, setSaving] = useState(false);
+  const loadedRef = useRef(false);
 
   // Form state
   const [medicineName, setMedicineName] = useState('');
@@ -42,35 +44,40 @@ export default function RemindersPage() {
 
   // Fetch reminders
   const fetchReminders = useCallback(async () => {
-    if (!user) {
+    if (!userId) {
       setLoading(false);
       return;
     }
 
-    setLoading(true);
+    if (!loadedRef.current) {
+      setLoading(true);
+    }
     try {
       const { data, error } = await supabase
         .from('medication_reminders')
         .select('*')
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .order('time', { ascending: true });
 
       if (error) throw error;
       setReminders(data || []);
+      loadedRef.current = true;
     } catch (error) {
       console.error('Error fetching reminders:', error);
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [userId]);
 
   useEffect(() => {
+    loadedRef.current = false;
+    setLoading(true);
     if (isDev) {
-      console.log('RemindersPage init', { user, session, authLoading });
+      console.log('RemindersPage init', { userId, authLoading });
     }
     if (authLoading) return;
     fetchReminders();
-  }, [authLoading, fetchReminders, user, session]);
+  }, [authLoading, fetchReminders, userId]);
 
   // Reset form
   const resetForm = () => {
@@ -107,7 +114,7 @@ export default function RemindersPage() {
     setSaving(true);
     try {
       const reminderData = {
-        user_id: user.id,
+        user_id: userId,
         medicine_name: medicineName.trim(),
         dosage: dosage.trim() || null,
         frequency,

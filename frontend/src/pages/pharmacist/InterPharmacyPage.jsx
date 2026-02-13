@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -13,7 +13,7 @@ import { SkeletonPharmacyCard, SkeletonList } from '../../components/ui/skeleton
 import { EmptyState } from '../../components/ui/empty-states';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
 import { toast } from 'sonner';
-import { 
+import {
   ArrowLeft, 
   Search, 
   Users,
@@ -26,8 +26,26 @@ import {
   Pill
 } from 'lucide-react';
 
+const areStockRequestsEqual = (prevList = [], nextList = []) => {
+  if (prevList === nextList) return true;
+  if (prevList.length !== nextList.length) return false;
+
+  for (let i = 0; i < prevList.length; i += 1) {
+    const prev = prevList[i] || {};
+    const next = nextList[i] || {};
+    if ((prev.id || '') !== (next.id || '')) return false;
+    if ((prev.status || '') !== (next.status || '')) return false;
+    if ((prev.updated_at || '') !== (next.updated_at || '')) return false;
+    if ((prev.responded_at || '') !== (next.responded_at || '')) return false;
+  }
+
+  return true;
+};
+
 export default function InterPharmacyPage() {
   const { user, profile, isVerifiedPharmacist } = useAuth();
+  const userId = user?.id || null;
+  const profileId = profile?.id || null;
   const { t, language } = useLanguage();
   const navigate = useNavigate();
 
@@ -45,21 +63,29 @@ export default function InterPharmacyPage() {
   const [productSuggestions, setProductSuggestions] = useState([]);
   const [productSearchLoading, setProductSearchLoading] = useState(false);
   const [inventoryRefreshTick, setInventoryRefreshTick] = useState(0);
+  const initialLoadedRef = useRef(false);
+
+  useEffect(() => {
+    initialLoadedRef.current = false;
+  }, [userId]);
 
   // Redirect if not verified pharmacist
   useEffect(() => {
-    if (profile && !isVerifiedPharmacist()) {
+    if (profileId && !isVerifiedPharmacist()) {
       navigate('/pharmacist');
     }
-  }, [profile, isVerifiedPharmacist, navigate]);
+  }, [profileId, isVerifiedPharmacist, navigate]);
 
   const fetchMyPharmacy = useCallback(async () => {
-    if (!user) return;
+    if (!userId) {
+      setMyPharmacy(null);
+      return;
+    }
     try {
       const { data, error } = await supabase
         .from('pharmacies')
         .select('*')
-        .eq('owner_id', user.id)
+        .eq('owner_id', userId)
         .maybeSingle();
 
       if (error) throw error;
@@ -67,26 +93,29 @@ export default function InterPharmacyPage() {
     } catch (error) {
       console.error('Error fetching my pharmacy:', error);
     }
-  }, [user]);
+  }, [userId]);
 
   // Fetch pharmacies (no embedded relationships)
   const fetchPharmacies = useCallback(async () => {
-    if (!user) return;
+    if (!userId) {
+      setPharmacies((prev) => (prev.length === 0 ? prev : []));
+      return;
+    }
     try {
       const selectFields = 'id, owner_id, name, address, phone, hours, is_on_call, on_call_schedule, is_verified, latitude, longitude, created_at, updated_at';
       const { data, error } = await supabase
         .from('pharmacies')
         .select(selectFields)
         .eq('is_verified', true)
-        .neq('owner_id', user.id);
+        .neq('owner_id', userId);
 
       if (error) throw error;
-      setPharmacies((data || []).filter((pharmacy) => pharmacy?.owner_id !== user.id));
+      setPharmacies((data || []).filter((pharmacy) => pharmacy?.owner_id !== userId));
     } catch (error) {
       console.error('Error fetching pharmacies:', error);
       setPharmacies([]);
     }
-  }, [user]);
+  }, [userId]);
 
   // Fetch stock requests
   const fetchRequests = useCallback(async () => {
@@ -103,7 +132,8 @@ export default function InterPharmacyPage() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setRequests(data || []);
+      const nextRequests = data || [];
+      setRequests((prev) => (areStockRequestsEqual(prev, nextRequests) ? prev : nextRequests));
     } catch (error) {
       console.error('Error fetching requests:', error);
     }
@@ -124,7 +154,7 @@ export default function InterPharmacyPage() {
         const { data, error } = await supabase
           .from('pharmacies')
           .select('id')
-          .eq('owner_id', user.id)
+          .eq('owner_id', userId)
           .maybeSingle();
         if (error) throw error;
         currentPharmacy = data;
@@ -188,13 +218,21 @@ export default function InterPharmacyPage() {
 
   // Initial fetch
   useEffect(() => {
+    if (!userId) {
+      setLoading(false);
+      return;
+    }
     const init = async () => {
-      setLoading(true);
+      const isInitialLoad = !initialLoadedRef.current;
+      if (isInitialLoad) {
+        setLoading(true);
+      }
       await Promise.all([fetchMyPharmacy(), fetchPharmacies()]);
+      initialLoadedRef.current = true;
       setLoading(false);
     };
     init();
-  }, [fetchMyPharmacy, fetchPharmacies]);
+  }, [userId, fetchMyPharmacy, fetchPharmacies]);
 
   useEffect(() => {
     if (myPharmacy) {
@@ -277,15 +315,15 @@ export default function InterPharmacyPage() {
   // Filter pharmacies
   const filteredPharmacies = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    if (!query) return pharmacies.filter((p) => p?.owner_id !== user?.id);
+    if (!query) return pharmacies.filter((p) => p?.owner_id !== userId);
     const productMatchSet = new Set(productMatchPharmacyIds);
     return pharmacies.filter((p) => {
-      if (p?.owner_id === user?.id) return false;
+      if (p?.owner_id === userId) return false;
       const textMatch = (p.name || '').toLowerCase().includes(query)
         || (p.address || '').toLowerCase().includes(query);
       return textMatch || productMatchSet.has(p.id);
     });
-  }, [pharmacies, searchQuery, productMatchPharmacyIds, user]);
+  }, [pharmacies, searchQuery, productMatchPharmacyIds, userId]);
 
   // Separate incoming and outgoing requests
   const incomingRequests = requests.filter(r => r.to_pharmacy_id === myPharmacy?.id);

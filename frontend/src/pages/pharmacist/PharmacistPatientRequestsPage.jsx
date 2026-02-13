@@ -1,13 +1,14 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { supabase } from '../../lib/supabase';
 import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { EmptyState } from '../../components/ui/empty-states';
-import { ArrowLeft, Inbox, CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { ArrowLeft, Inbox, CheckCircle2, XCircle, Clock, Search } from 'lucide-react';
 import { toast } from 'sonner';
 
 const isDev = process.env.NODE_ENV !== 'production';
@@ -52,42 +53,71 @@ const TXT = {
   }
 };
 
+const areRequestsEqual = (prevList = [], nextList = []) => {
+  if (prevList === nextList) return true;
+  if (prevList.length !== nextList.length) return false;
+  for (let i = 0; i < prevList.length; i += 1) {
+    const prev = prevList[i];
+    const next = nextList[i];
+    const prevReq = prev?.request || {};
+    const nextReq = next?.request || {};
+    if ((prev?.id || '') !== (next?.id || '')) return false;
+    if ((prev?.status || '') !== (next?.status || '')) return false;
+    if ((prev?.updated_at || '') !== (next?.updated_at || '')) return false;
+    if ((prev?.responded_at || '') !== (next?.responded_at || '')) return false;
+    if ((prevReq?.id || '') !== (nextReq?.id || '')) return false;
+    if ((prevReq?.status || '') !== (nextReq?.status || '')) return false;
+    if ((prevReq?.expires_at || '') !== (nextReq?.expires_at || '')) return false;
+    if ((prevReq?.selected_pharmacy_id || '') !== (nextReq?.selected_pharmacy_id || '')) return false;
+  }
+  return true;
+};
+
 export default function PharmacistPatientRequestsPage() {
   const { user, profile, isPharmacist } = useAuth();
+  const userId = user?.id || null;
+  const profileId = profile?.id || null;
   const { language } = useLanguage();
 
   const t = useCallback((key) => (TXT[language] || TXT.en)[key], [language]);
   const navigate = useNavigate();
 
   const [pharmacy, setPharmacy] = useState(null);
+  const pharmacyId = pharmacy?.id || null;
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('pending');
+  const [searchQuery, setSearchQuery] = useState('');
   const [respondingId, setRespondingId] = useState(null);
   const [executingId, setExecutingId] = useState(null);
-  const [nowTick, setNowTick] = useState(Date.now());
   const [patientDetailsByRequest, setPatientDetailsByRequest] = useState({});
+  const hasLoadedRequestsRef = useRef(false);
+  const requestsRef = useRef([]);
 
   useEffect(() => {
-    if (profile && !isPharmacist()) {
+    if (profileId && !isPharmacist()) {
       navigate('/patient');
     }
-  }, [profile, isPharmacist, navigate]);
+  }, [profileId, isPharmacist, navigate]);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setNowTick(Date.now());
-    }, 60000);
-    return () => clearInterval(interval);
-  }, []);
+    hasLoadedRequestsRef.current = false;
+    setLoading(true);
+    setRefreshing(false);
+  }, [pharmacyId, userId]);
+
+  useEffect(() => {
+    requestsRef.current = requests;
+  }, [requests]);
 
   const fetchPharmacy = useCallback(async () => {
-    if (!user) return null;
+    if (!userId) return null;
     try {
       const { data, error } = await supabase
         .from('pharmacies')
         .select('*')
-        .eq('owner_id', user.id)
+        .eq('owner_id', userId)
         .limit(1)
         .maybeSingle();
 
@@ -99,15 +129,19 @@ export default function PharmacistPatientRequestsPage() {
       setPharmacy(null);
       return null;
     }
-  }, [user]);
+  }, [userId]);
 
   const fetchRequests = useCallback(async (pharmacyData) => {
     if (!pharmacyData) {
-      setRequests([]);
       setLoading(false);
+      setRefreshing(false);
       return;
     }
-    setLoading(true);
+    const isInitialLoad = !hasLoadedRequestsRef.current;
+    let didChange = false;
+    if (isInitialLoad) {
+      setLoading(true);
+    }
     try {
       const { data, error } = await supabase
         .from('patient_request_recipients')
@@ -166,7 +200,17 @@ export default function PharmacistPatientRequestsPage() {
         const selectedId = item?.request?.selected_pharmacy_id ?? null;
         return !selectedId || selectedId === pharmacyData.id;
       });
-      setRequests(filtered);
+      const prevList = requestsRef.current || [];
+      const nextList = areRequestsEqual(prevList, filtered) ? prevList : filtered;
+      didChange = nextList !== prevList;
+
+      if (!isInitialLoad && didChange) {
+        setRefreshing(true);
+      }
+
+      setRequests(nextList);
+      requestsRef.current = nextList;
+      hasLoadedRequestsRef.current = true;
     } catch (error) {
       console.error('Error fetching patient requests:', error);
       toast.error(language === 'el'
@@ -174,6 +218,9 @@ export default function PharmacistPatientRequestsPage() {
         : 'Failed to load requests.');
     } finally {
       setLoading(false);
+      if (!isInitialLoad && didChange) {
+        setRefreshing(false);
+      }
     }
   }, [language]);
 
@@ -207,41 +254,41 @@ export default function PharmacistPatientRequestsPage() {
       const pharmacyData = await fetchPharmacy();
       await fetchRequests(pharmacyData);
     };
-    if (user) {
+    if (userId) {
       load();
     }
-  }, [user, fetchPharmacy, fetchRequests]);
+  }, [userId, fetchPharmacy, fetchRequests]);
 
   useEffect(() => {
-    if (!pharmacy?.id) return;
+    if (!pharmacyId) return;
     const eligible = (requests || []).filter((item) => {
       const request = item?.request || {};
-      return item?.status === 'accepted' && request?.selected_pharmacy_id === pharmacy.id;
+      return item?.status === 'accepted' && request?.selected_pharmacy_id === pharmacyId;
     });
 
     eligible.forEach((item) => {
       const requestId = item?.request?.id;
       if (!requestId) return;
       if (patientDetailsByRequest[requestId]) return;
-      fetchPatientDetails(requestId, pharmacy.id);
+      fetchPatientDetails(requestId, pharmacyId);
     });
-  }, [requests, pharmacy, fetchPatientDetails, patientDetailsByRequest]);
+  }, [requests, pharmacyId, fetchPatientDetails, patientDetailsByRequest]);
 
   useEffect(() => {
-    if (!pharmacy?.id) return;
+    if (!pharmacyId) return;
     const channel = supabase
-      .channel(`patient_request_recipients:${pharmacy.id}:manage`)
+      .channel(`patient_request_recipients:${pharmacyId}:manage`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'patient_request_recipients', filter: `pharmacy_id=eq.${pharmacy.id}` },
-        () => fetchRequests(pharmacy)
+        { event: '*', schema: 'public', table: 'patient_request_recipients', filter: `pharmacy_id=eq.${pharmacyId}` },
+        () => fetchRequests({ id: pharmacyId })
       )
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [pharmacy, fetchRequests]);
+  }, [pharmacyId, fetchRequests]);
 
   const getStatusInfo = useCallback((recipient) => {
     const request = recipient?.request || {};
@@ -338,22 +385,54 @@ export default function PharmacistPatientRequestsPage() {
   }, [language]);
 
   const filteredRequests = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
     const normalized = (requests || []).map((item) => ({
       ...item,
       statusInfo: getStatusInfo(item)
     }));
 
-    if (activeTab === 'all') return normalized;
-    if (activeTab === 'cancelled-expired') {
-      return normalized.filter((item) =>
+    let byTab = normalized;
+    if (activeTab === 'all') {
+      byTab = normalized;
+    } else if (activeTab === 'cancelled-expired') {
+      byTab = normalized.filter((item) =>
         item.statusInfo.key === STATUS_KEYS.cancelled || item.statusInfo.key === STATUS_KEYS.expired
       );
+    } else if (activeTab === STATUS_KEYS.executed) {
+      byTab = normalized.filter((item) => item.statusInfo.key === STATUS_KEYS.executed);
+    } else {
+      byTab = normalized.filter((item) => item.statusInfo.key === activeTab);
     }
-    if (activeTab === STATUS_KEYS.executed) {
-      return normalized.filter((item) => item.statusInfo.key === STATUS_KEYS.executed);
-    }
-    return normalized.filter((item) => item.statusInfo.key === activeTab);
-  }, [requests, activeTab, getStatusInfo]);
+
+    if (!query) return byTab;
+
+    return byTab.filter((item) => {
+      const request = item?.request || {};
+      const patientDetails = patientDetailsByRequest[request?.id] || {};
+      const searchBlob = [
+        request?.medicine_query,
+        request?.dosage,
+        request?.form,
+        request?.urgency,
+        request?.status,
+        item?.status,
+        patientDetails?.patient_full_name,
+        patientDetails?.full_name,
+        patientDetails?.patient_phone,
+        patientDetails?.phone,
+        patientDetails?.patient_address_text,
+        patientDetails?.patient_address,
+        patientDetails?.address_text,
+        patientDetails?.address,
+        patientDetails?.request_notes
+      ]
+        .filter(Boolean)
+        .map((value) => String(value).toLowerCase())
+        .join(' ');
+
+      return searchBlob.includes(query);
+    });
+  }, [requests, activeTab, getStatusInfo, searchQuery, patientDetailsByRequest]);
 
   const counts = useMemo(() => {
     const base = {
@@ -377,7 +456,7 @@ export default function PharmacistPatientRequestsPage() {
 
   const getRemainingLabel = (expiresAt) => {
     if (!expiresAt) return '-';
-    const diffMs = new Date(expiresAt).getTime() - nowTick;
+    const diffMs = new Date(expiresAt).getTime() - Date.now();
     if (diffMs <= 0) return language === 'el' ? '\u0388\u03bb\u03b7\u03be\u03b5' : 'Expired';
     const totalMinutes = Math.ceil(diffMs / 60000);
     const hours = Math.floor(totalMinutes / 60);
@@ -502,6 +581,29 @@ export default function PharmacistPatientRequestsPage() {
                 </TabsTrigger>
               </TabsList>
             </Tabs>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-pharma-slate-grey" />
+              <Input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder={
+                  language === 'el'
+                    ? 'Αναζήτηση με φάρμακο, δοσολογία ή λέξη-κλειδί...'
+                    : 'Search by medicine, dosage, or keyword...'
+                }
+                className="pl-9 rounded-xl"
+                data-testid="requests-search-input"
+              />
+            </div>
+            <div className="min-h-[18px] text-xs text-pharma-slate-grey">
+              {refreshing ? (
+                language === 'el' ? 'Γίνεται ενημέρωση...' : 'Updating...'
+              ) : (
+                <span className="invisible">
+                  {language === 'el' ? 'Γίνεται ενημέρωση...' : 'Updating...'}
+                </span>
+              )}
+            </div>
 
             {!pharmacy ? (
               <EmptyState
@@ -511,20 +613,26 @@ export default function PharmacistPatientRequestsPage() {
                   ? '\u03a0\u03c1\u03bf\u03c3\u03b8\u03ad\u03c3\u03c4\u03b5 \u03c6\u03b1\u03c1\u03bc\u03b1\u03ba\u03b5\u03af\u03bf \u03b3\u03b9\u03b1 \u03bd\u03b1 \u03bb\u03b1\u03bc\u03b2\u03ac\u03bd\u03b5\u03c4\u03b5 \u03b1\u03b9\u03c4\u03ae\u03bc\u03b1\u03c4\u03b1.'
                   : 'Add a pharmacy to receive requests.'}
               />
-            ) : loading ? (
+            ) : (loading && requests.length === 0) ? (
               <div className="text-sm text-pharma-slate-grey">
                 {language === 'el' ? '\u03a6\u03cc\u03c1\u03c4\u03c9\u03c3\u03b7...' : 'Loading...'}
               </div>
             ) : filteredRequests.length === 0 ? (
               <EmptyState
                 icon={Inbox}
-                title={language === 'el' ? '\u0394\u03b5\u03bd \u03c5\u03c0\u03ac\u03c1\u03c7\u03bf\u03c5\u03bd \u03b1\u03b9\u03c4\u03ae\u03bc\u03b1\u03c4\u03b1' : 'No requests'}
+                title={
+                  searchQuery.trim()
+                    ? (language === 'el' ? 'Δεν βρέθηκαν αποτελέσματα' : 'No matching requests')
+                    : (language === 'el' ? '\u0394\u03b5\u03bd \u03c5\u03c0\u03ac\u03c1\u03c7\u03bf\u03c5\u03bd \u03b1\u03b9\u03c4\u03ae\u03bc\u03b1\u03c4\u03b1' : 'No requests')
+                }
                 description={language === 'el'
-                  ? '\u0394\u03bf\u03ba\u03b9\u03bc\u03ac\u03c3\u03c4\u03b5 \u03ac\u03bb\u03bb\u03bf \u03c6\u03af\u03bb\u03c4\u03c1\u03bf.'
-                  : 'Try another filter.'}
+                  ? (searchQuery.trim() ? 'Δοκιμάστε άλλη λέξη-κλειδί.' : '\u0394\u03bf\u03ba\u03b9\u03bc\u03ac\u03c3\u03c4\u03b5 \u03ac\u03bb\u03bb\u03bf \u03c6\u03af\u03bb\u03c4\u03c1\u03bf.')
+                  : (searchQuery.trim() ? 'Try another keyword.' : 'Try another filter.')}
               />
             ) : (
-              <div className="space-y-3">
+              <div className="paint-stable">
+                <div className="incoming-scroll max-h-[66vh] overflow-y-auto pr-1">
+                  <div className="space-y-3">
                 {filteredRequests.map((item) => {
                   const request = item?.request || {};
                   const statusInfo = item.statusInfo || getStatusInfo(item);
@@ -587,7 +695,7 @@ export default function PharmacistPatientRequestsPage() {
                                   </p>
                                   <p className="flex items-center gap-1.5">
                                     <Clock className="w-3.5 h-3.5" />
-                                    {language === 'el' ? '\u039b\u03ae\u03b3\u03b5\u03b9' : 'Expires'}: {formatDateTime(request?.expires_at)} · {getRemainingLabel(request?.expires_at)}
+                                    {language === 'el' ? '\u039b\u03ae\u03b3\u03b5\u03b9' : 'Expires'}: {formatDateTime(request?.expires_at)} Β· {getRemainingLabel(request?.expires_at)}
                                   </p>
                                 </>
                               )}
@@ -716,6 +824,8 @@ export default function PharmacistPatientRequestsPage() {
                     </Card>
                   );
                 })}
+                  </div>
+                </div>
               </div>
             )}
           </CardContent>
@@ -724,3 +834,4 @@ export default function PharmacistPatientRequestsPage() {
     </div>
   );
 }
+

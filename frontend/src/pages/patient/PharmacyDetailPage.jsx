@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -23,9 +23,94 @@ import {
 
 const isDev = process.env.NODE_ENV !== 'production';
 
+const areCatalogProductsEqual = (prevList = [], nextList = []) => {
+  if (prevList === nextList) return true;
+  if (prevList.length !== nextList.length) return false;
+
+  for (let i = 0; i < prevList.length; i += 1) {
+    const prev = prevList[i] || {};
+    const next = nextList[i] || {};
+    const prevProduct = prev.product || {};
+    const nextProduct = next.product || {};
+
+    if ((prev.pharmacy_id || '') !== (next.pharmacy_id || '')) return false;
+    if ((prev.product_id || '') !== (next.product_id || '')) return false;
+    if ((prevProduct.id || '') !== (nextProduct.id || '')) return false;
+    if ((prevProduct.category || '') !== (nextProduct.category || '')) return false;
+    if ((prevProduct.name_el || '') !== (nextProduct.name_el || '')) return false;
+    if ((prevProduct.name_en || '') !== (nextProduct.name_en || '')) return false;
+    if ((prevProduct.brand || '') !== (nextProduct.brand || '')) return false;
+    if ((prevProduct.strength || '') !== (nextProduct.strength || '')) return false;
+    if ((prevProduct.form || '') !== (nextProduct.form || '')) return false;
+  }
+
+  return true;
+};
+
+const HOURS_DAY_ORDER = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+const HOURS_DAY_LABELS = {
+  el: {
+    mon: '\u0394\u03b5\u03c5',
+    tue: '\u03a4\u03c1\u03b9',
+    wed: '\u03a4\u03b5\u03c4',
+    thu: '\u03a0\u03b5\u03bc',
+    fri: '\u03a0\u03b1\u03c1',
+    sat: '\u03a3\u03b1\u03b2',
+    sun: '\u039a\u03c5\u03c1'
+  },
+  en: {
+    mon: 'Mon',
+    tue: 'Tue',
+    wed: 'Wed',
+    thu: 'Thu',
+    fri: 'Fri',
+    sat: 'Sat',
+    sun: 'Sun'
+  }
+};
+
+const parseHoursSchedule = (hoursValue) => {
+  if (!hoursValue) return null;
+  let parsed = hoursValue;
+
+  if (typeof hoursValue === 'string') {
+    const trimmed = hoursValue.trim();
+    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return null;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch (error) {
+      return null;
+    }
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  return parsed;
+};
+
+const getFormattedHoursRows = (hoursValue, language) => {
+  const parsed = parseHoursSchedule(hoursValue);
+  if (!parsed) return [];
+  const labels = language === 'el' ? HOURS_DAY_LABELS.el : HOURS_DAY_LABELS.en;
+
+  return HOURS_DAY_ORDER.map((dayKey) => {
+    const entry = parsed?.[dayKey] || {};
+    const openValue = typeof entry.open === 'string' ? entry.open.trim() : '';
+    const closeValue = typeof entry.close === 'string' ? entry.close.trim() : '';
+    const isClosed = entry.closed === true || !openValue || !closeValue;
+    return {
+      dayKey,
+      dayLabel: labels[dayKey],
+      value: isClosed
+        ? (language === 'el' ? '\u039a\u03bb\u03b5\u03b9\u03c3\u03c4\u03cc' : 'Closed')
+        : `${openValue} - ${closeValue}`
+    };
+  });
+};
+
 export default function PharmacyDetailPage() {
   const { id } = useParams();
-  const { user, session, loading: authLoading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
+  const userId = user?.id || null;
   const { t, language } = useLanguage();
   const { seniorMode } = useSeniorMode();
   
@@ -33,15 +118,27 @@ export default function PharmacyDetailPage() {
   const [catalogProducts, setCatalogProducts] = useState([]);
   const [isFavorite, setIsFavorite] = useState(false);
   const [loading, setLoading] = useState(true);
+  const loadedRef = useRef(false);
+  const formattedHoursRows = useMemo(
+    () => getFormattedHoursRows(pharmacy?.hours, language),
+    [pharmacy?.hours, language]
+  );
+
+  useEffect(() => {
+    loadedRef.current = false;
+    setLoading(true);
+  }, [id, userId]);
 
   // Fetch pharmacy details
   useEffect(() => {
     if (isDev) {
-      console.log('PharmacyDetailPage init', { user, session, authLoading });
+      console.log('PharmacyDetailPage init', { userId, authLoading });
     }
     if (authLoading) return;
     const fetchPharmacy = async () => {
-      setLoading(true);
+      if (!loadedRef.current) {
+        setLoading(true);
+      }
       try {
         // Fetch pharmacy
         const { data: pharmacyData, error: pharmacyError } = await supabase
@@ -53,7 +150,7 @@ export default function PharmacyDetailPage() {
         if (pharmacyError) throw pharmacyError;
         if (!pharmacyData) {
           setPharmacy(null);
-          setCatalogProducts([]);
+          setCatalogProducts((prev) => (prev.length === 0 ? prev : []));
           return;
         }
 
@@ -61,54 +158,67 @@ export default function PharmacyDetailPage() {
         setPharmacy(pharmacyData);
 
         // Fetch declared catalog associations for this pharmacy
-        const { data: catalogData, error: catalogError } = await supabase
-          .from('pharmacy_inventory')
-          .select(`
-            id,
-            product_id,
-            product:product_catalog (
-              id,
-              category,
-              name_el,
-              name_en,
-              brand,
-              strength,
-              form
-            )
-          `)
+        const { data: inventoryRows, error: inventoryError } = await supabase
+          .schema('app_public')
+          .from('pharmacy_inventory_public')
+          .select('pharmacy_id, product_id')
           .eq('pharmacy_id', id)
-          .eq('association_status', 'active');
+          .order('product_id', { ascending: true });
 
-        if (!catalogError) {
-          setCatalogProducts(catalogData || []);
+        if (!inventoryError) {
+          const productIds = Array.from(
+            new Set((inventoryRows || []).map((row) => row?.product_id).filter(Boolean))
+          );
+
+          if (productIds.length > 0) {
+            const { data: productRows, error: productError } = await supabase
+              .schema('app_public')
+              .from('catalog')
+              .select('id, category, name_el, name_en, brand, strength, form')
+              .in('id', productIds);
+
+            if (!productError) {
+              const productsById = new Map((productRows || []).map((row) => [row.id, row]));
+              const mergedRows = (inventoryRows || []).map((row) => ({
+                ...row,
+                product: productsById.get(row.product_id) || null
+              }));
+              setCatalogProducts((prev) => (areCatalogProductsEqual(prev, mergedRows) ? prev : mergedRows));
+            }
+          } else {
+            setCatalogProducts((prev) => (prev.length === 0 ? prev : []));
+          }
         }
 
         // Check if favorite
-        if (user) {
+        if (userId) {
           const { data: favoriteData, error: favoriteError } = await supabase
             .from('favorites')
             .select('id')
-            .eq('user_id', user.id)
+            .eq('user_id', userId)
             .eq('pharmacy_id', id)
             .maybeSingle();
 
           if (favoriteError) throw favoriteError;
 
           setIsFavorite(!!favoriteData);
+        } else {
+          setIsFavorite(false);
         }
       } catch (error) {
         console.error('Error fetching pharmacy:', error);
       } finally {
+        loadedRef.current = true;
         setLoading(false);
       }
     };
 
     fetchPharmacy();
-  }, [authLoading, id, user, session]);
+  }, [authLoading, id, userId]);
 
   // Toggle favorite
   const toggleFavorite = async () => {
-    if (!user) {
+    if (!userId) {
       toast.error(language === 'el' ? 'Συνδεθείτε για αποθήκευση' : 'Sign in to save');
       return;
     }
@@ -118,7 +228,7 @@ export default function PharmacyDetailPage() {
         await supabase
           .from('favorites')
           .delete()
-          .eq('user_id', user.id)
+          .eq('user_id', userId)
           .eq('pharmacy_id', id);
         
         setIsFavorite(false);
@@ -126,7 +236,7 @@ export default function PharmacyDetailPage() {
       } else {
         await supabase
           .from('favorites')
-          .insert({ user_id: user.id, pharmacy_id: id });
+          .insert({ user_id: userId, pharmacy_id: id });
         
         setIsFavorite(true);
         toast.success(language === 'el' ? 'Προστέθηκε στα αγαπημένα' : 'Added to favorites');
@@ -260,9 +370,22 @@ export default function PharmacyDetailPage() {
               )}
               
               {pharmacy.hours && (
-                <div className="flex items-center gap-3">
-                  <Clock className="w-5 h-5 text-pharma-teal" />
-                  <span className="text-pharma-charcoal">{pharmacy.hours}</span>
+                <div className="flex items-start gap-3">
+                  <Clock className="w-5 h-5 text-pharma-teal mt-0.5" />
+                  <div className="flex-1">
+                    {formattedHoursRows.length > 0 ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5">
+                        {formattedHoursRows.map((row) => (
+                          <div key={row.dayKey} className="flex items-center justify-between rounded-lg border border-pharma-grey-pale/70 bg-pharma-ice-blue/40 px-2.5 py-1.5 text-sm">
+                            <span className="font-medium text-pharma-dark-slate">{row.dayLabel}</span>
+                            <span className="text-pharma-charcoal">{row.value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-pharma-charcoal break-words">{String(pharmacy.hours)}</span>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -325,7 +448,7 @@ export default function PharmacyDetailPage() {
                     : (product.name_en || product.name_el || 'Product');
                   return (
                   <div 
-                    key={item.id}
+                    key={`${item.product_id || 'product'}-${item.pharmacy_id || 'pharmacy'}`}
                     className="flex items-center justify-between p-3 bg-pharma-ice-blue rounded-xl"
                   >
                     <div>

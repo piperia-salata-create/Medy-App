@@ -15,7 +15,7 @@ const VALID_CATEGORIES = new Set(['medication', 'parapharmacy', 'product']);
 const VALID_ASSOCIATION_STATUSES = new Set(['active', 'inactive', 'discontinued_local']);
 
 const catalogSelect =
-  'id,category,name_el,name_en,name_el_norm,name_en_norm,form_norm,strength_norm,desc_el,desc_en,barcode,brand,strength,form,active_ingredient_el,active_ingredient_en,created_by,created_at,updated_at';
+  'id,category,name_el,name_en,name_el_norm,name_en_norm,form_norm,strength_norm,desc_el,desc_en,barcode,brand,strength,form,active_ingredient_el,active_ingredient_en,dedupe_key,created_by,created_at,updated_at';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -36,6 +36,7 @@ type CatalogRow = {
   form: string | null;
   active_ingredient_el: string | null;
   active_ingredient_en: string | null;
+  dedupe_key: string;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -369,6 +370,16 @@ const buildCatalogInsertPayload = (item: ParsedItem, userId: string): UnknownRec
   created_by: userId
 });
 
+const buildCatalogDedupeKey = (item: ParsedItem): string => {
+  if (item.barcode) {
+    return `b:${normalizeText(item.barcode)}`;
+  }
+
+  const nameKey = item.nameElNorm || item.nameEnNorm;
+  const brandKey = normalizeText(item.brand);
+  return `n:${item.category}|${nameKey}|${item.formNorm}|${item.strengthNorm}|${brandKey}`;
+};
+
 const buildCatalogMissingFieldUpdate = (
   existing: CatalogRow,
   incoming: ParsedItem
@@ -391,11 +402,6 @@ const buildCatalogMissingFieldUpdate = (
   }
 
   return updates;
-};
-
-const isUniqueViolation = (error: unknown): boolean => {
-  const code = (error as { code?: string })?.code;
-  return code === '23505';
 };
 
 serve(async (req) => {
@@ -538,30 +544,43 @@ serve(async (req) => {
 
       try {
         const insertPayload = buildCatalogInsertPayload(item, userId);
-        const inserted = await serviceClient
+        const dedupeKey = buildCatalogDedupeKey(item);
+        const upserted = await serviceClient
           .from('product_catalog')
-          .insert(insertPayload)
+          .upsert(insertPayload, {
+            onConflict: 'dedupe_key',
+            ignoreDuplicates: true
+          })
           .select(catalogSelect)
-          .single();
+          .maybeSingle();
 
-        if (inserted.error) {
-          if (item.barcode && isUniqueViolation(inserted.error)) {
-            const existingByBarcode = await serviceClient
-              .from('product_catalog')
-              .select(catalogSelect)
-              .eq('barcode', item.barcode)
-              .limit(1)
-              .maybeSingle();
-            if (existingByBarcode.error || !existingByBarcode.data) {
-              throw inserted.error;
-            }
-            catalogRow = existingByBarcode.data as CatalogRow;
-          } else {
-            throw inserted.error;
-          }
-        } else {
-          catalogRow = inserted.data as CatalogRow;
+        if (upserted.error) {
+          throw upserted.error;
+        }
+
+        if (upserted.data) {
+          catalogRow = upserted.data as CatalogRow;
           counts.created_catalog += 1;
+        } else {
+          const existingByDedupeKey = await serviceClient
+            .from('product_catalog')
+            .select(catalogSelect)
+            .eq('dedupe_key', dedupeKey)
+            .limit(1)
+            .maybeSingle();
+
+          if (existingByDedupeKey.error || !existingByDedupeKey.data) {
+            const rematch = await findCatalogMatch(serviceClient, item);
+            if (!rematch.product) {
+              throw new Error(
+                existingByDedupeKey.error?.message ??
+                  'Unable to resolve product_catalog row after dedupe upsert.'
+              );
+            }
+            catalogRow = rematch.product;
+          } else {
+            catalogRow = existingByDedupeKey.data as CatalogRow;
+          }
         }
       } catch (err) {
         counts.skipped_invalid += 1;

@@ -47,27 +47,47 @@ const invokeInventoryImport = async (accessToken, pharmacyId, items) => {
   return { response, payload };
 };
 
+const sanitizeImportItem = (item) => {
+  const safeItem = { ...item };
+  if (safeItem.price === null || safeItem.price === undefined || safeItem.price === '') {
+    delete safeItem.price;
+  }
+  return safeItem;
+};
+
+const buildEdgeErrorMessage = (response, payload) => {
+  const details = typeof payload?.details === 'string' ? payload.details.trim() : '';
+  const error = typeof payload?.error === 'string' ? payload.error.trim() : '';
+  const message = typeof payload?.message === 'string' ? payload.message.trim() : '';
+  if (error && details) return `${error}: ${details}`;
+  if (error) return error;
+  if (message && details) return `${message}: ${details}`;
+  if (message) return message;
+  if (details) return details;
+  return `inventory-import failed (${response.status})`;
+};
+
 export const importInventoryItems = async (pharmacyId, items) => {
   const safeItems = Array.isArray(items) ? items : [];
   if (!pharmacyId) throw new Error('Pharmacy id is required.');
   if (safeItems.length === 0) throw new Error('No inventory items to import.');
 
+  const sanitizedItems = safeItems.map((item) => sanitizeImportItem(item));
   const accessToken = await getAccessTokenOrThrow();
-  let { response, payload } = await invokeInventoryImport(accessToken, pharmacyId, safeItems);
+  let { response, payload } = await invokeInventoryImport(accessToken, pharmacyId, sanitizedItems);
 
   if (response.status === 401) {
     const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
     if (!refreshError && refreshed?.session?.access_token) {
-      const retry = await invokeInventoryImport(refreshed.session.access_token, pharmacyId, safeItems);
+      const retry = await invokeInventoryImport(refreshed.session.access_token, pharmacyId, sanitizedItems);
       response = retry.response;
       payload = retry.payload;
     }
   }
 
   if (!response.ok) {
-    throw new Error(payload?.error || `inventory-import failed (${response.status})`);
+    throw new Error(buildEdgeErrorMessage(response, payload));
   }
 
   return payload;
 };
-

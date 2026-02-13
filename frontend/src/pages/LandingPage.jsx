@@ -331,7 +331,7 @@ export default function LandingPage() {
               </a>
             </div>
             <p className="text-white/50 text-sm">
-              © 2025 Medy
+              © 2026 Medy App
             </p>
           </div>
         </div>

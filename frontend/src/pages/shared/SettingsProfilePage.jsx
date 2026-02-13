@@ -43,6 +43,13 @@ const emptyPharmacyForm = {
   on_call_schedule: ''
 };
 
+const buildProfileForm = (data = {}, fallbackEmail = '') => ({
+  full_name: data?.full_name || '',
+  email: data?.email || fallbackEmail || '',
+  honorific: data?.honorific || '',
+  radius_km: data?.radius_km != null ? String(data.radius_km) : ''
+});
+
 const buildTimeOptions = () => {
   const options = [];
   for (let hour = 0; hour < 24; hour += 1) {
@@ -123,12 +130,15 @@ export default function SettingsProfilePage() {
   const { user, profile, loading: authLoading, isPharmacist, fetchProfile } = useAuth();
   const { t, language } = useLanguage();
   const DEBUG_MAP_PIN = localStorage.getItem('DEBUG_LOGS') === '1';
+  const userId = user?.id || null;
+  const userEmail = user?.email || '';
+  const initialProfileForm = useMemo(() => buildProfileForm(profile, userEmail), [profile, userEmail]);
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !profile);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ ...emptyForm });
-  const [originalProfile, setOriginalProfile] = useState({ ...emptyForm });
-  const [profileData, setProfileData] = useState(null);
+  const [form, setForm] = useState(() => ({ ...initialProfileForm }));
+  const [originalProfile, setOriginalProfile] = useState(() => ({ ...initialProfileForm }));
+  const [profileData, setProfileData] = useState(() => profile || null);
   const [formError, setFormError] = useState('');
   const [radiusError, setRadiusError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
@@ -159,6 +169,22 @@ export default function SettingsProfilePage() {
   const suppressGeocodeRef = useRef(false);
   const lastGeocodeAtRef = useRef(0);
   const mapPinRequestIdRef = useRef(0);
+  const profileRef = useRef(profile);
+  const profileLoadedRef = useRef(Boolean(profile));
+  const pharmacyLoadedRef = useRef(false);
+
+  useEffect(() => {
+    profileRef.current = profile;
+  }, [profile]);
+
+  useEffect(() => {
+    const hasKnownProfile = Boolean(profileRef.current && profileRef.current.id === userId);
+    profileLoadedRef.current = hasKnownProfile;
+    pharmacyLoadedRef.current = false;
+    if (hasKnownProfile) {
+      setLoading(false);
+    }
+  }, [userId]);
 
   const handleOpenMapPin = useCallback(() => {
     preloadMapPinModal();
@@ -166,14 +192,16 @@ export default function SettingsProfilePage() {
   }, []);
 
   const basePath = isPharmacist() ? '/pharmacist' : '/patient';
-  const isPharmacistRole = (profileData?.role || profile?.role) === 'pharmacist';
+  const profileRole = profile?.role || null;
+  const profileDataId = profileData?.id || null;
+  const isPharmacistRole = (profileData?.role || profileRole) === 'pharmacist';
   const isEditMode = useMemo(() => Boolean(existingPharmacyId), [existingPharmacyId]);
   const labels = language === 'el' ? dayLabels.el : dayLabels.en;
   const roleLabel = useMemo(() => {
-    if (profileData?.role === 'pharmacist' || profile?.role === 'pharmacist') return t('pharmacist');
-    if (profileData?.role === 'patient' || profile?.role === 'patient') return t('patient');
+    if (profileData?.role === 'pharmacist' || profileRole === 'pharmacist') return t('pharmacist');
+    if (profileData?.role === 'patient' || profileRole === 'patient') return t('patient');
     return '-';
-  }, [profileData, profile, t]);
+  }, [profileData?.role, profileRole, t]);
   const todayKey = useMemo(() => jsDayOrder[new Date().getDay()] || null, []);
   const mapPinInitialPosition = useMemo(() => {
     if (pendingCoords?.latitude != null && pendingCoords?.longitude != null) {
@@ -197,34 +225,44 @@ export default function SettingsProfilePage() {
   const applyProfile = useCallback((data) => {
     if (!data) return;
     setProfileData(data);
-    const nextForm = {
-      full_name: data.full_name || '',
-      email: data.email || user?.email || '',
-      honorific: data.honorific || '',
-      radius_km: data.radius_km != null ? String(data.radius_km) : ''
-    };
+    const nextForm = buildProfileForm(data, userEmail);
     setForm(nextForm);
     setOriginalProfile(nextForm);
-  }, [user]);
+  }, [userEmail]);
+
+  useEffect(() => {
+    if (!profile || !userId || profile.id !== userId) return;
+    if (!profileLoadedRef.current || !profileDataId || profileDataId !== profile.id) {
+      applyProfile(profile);
+      profileLoadedRef.current = true;
+      setLoading(false);
+    }
+  }, [profile, userId, profileDataId, applyProfile]);
 
   useEffect(() => {
     if (authLoading) return;
-    if (!user) return;
+    if (!userId) {
+      setLoading(false);
+      return;
+    }
 
     const loadProfile = async () => {
-      setLoading(true);
+      const isFirstLoad = !profileLoadedRef.current;
+      if (isFirstLoad && !profileRef.current) {
+        setLoading(true);
+      }
       setFormError('');
       setSuccessMessage('');
       try {
         const { data, error } = await supabase
           .from('profiles')
           .select('id,email,role,full_name,pharmacy_name,language,radius_km')
-          .eq('id', user.id)
+          .eq('id', userId)
           .single();
 
         if (error) {
           if (error.code === 'PGRST116') {
-            const createdProfile = await fetchProfile(user.id, 'settingsProfile');
+            const createdProfile = await fetchProfile(userId, 'settingsProfile');
             if (createdProfile) {
               applyProfile(createdProfile);
               return;
@@ -238,32 +276,37 @@ export default function SettingsProfilePage() {
         console.error('Failed to load profile:', err);
         const message = err?.message || (language === 'el' ? 'Σφάλμα φόρτωσης.' : 'Failed to load profile.');
         setFormError(message);
-        if (profile) {
-          applyProfile(profile);
+        if (profileRef.current) {
+          applyProfile(profileRef.current);
         }
       } finally {
         setLoading(false);
+        profileLoadedRef.current = true;
       }
     };
 
     loadProfile();
-  }, [authLoading, user, profile, language, fetchProfile, applyProfile]);
+  }, [authLoading, userId, language, fetchProfile, applyProfile]);
 
   useEffect(() => {
     if (authLoading) return;
-    if (!user || !isPharmacistRole) {
+    if (!userId || !isPharmacistRole) {
       setPharmacyLoading(false);
+      pharmacyLoadedRef.current = true;
       return;
     }
 
     const loadPharmacy = async () => {
-      setPharmacyLoading(true);
+      const isFirstLoad = !pharmacyLoadedRef.current;
+      if (isFirstLoad) {
+        setPharmacyLoading(true);
+      }
       setPharmacyFormError('');
       try {
         const { data, error } = await supabase
           .from('pharmacies')
           .select('*')
-          .eq('owner_id', user.id)
+          .eq('owner_id', userId)
           .limit(1)
           .maybeSingle();
 
@@ -318,11 +361,12 @@ export default function SettingsProfilePage() {
         setPharmacyFormError(message);
       } finally {
         setPharmacyLoading(false);
+        pharmacyLoadedRef.current = true;
       }
     };
 
     loadPharmacy();
-  }, [authLoading, user, isPharmacistRole, language]);
+  }, [authLoading, userId, isPharmacistRole, language]);
 
   const handleChange = (field) => (eventOrValue) => {
     const value = eventOrValue?.target ? eventOrValue.target.value : eventOrValue;
@@ -1085,7 +1129,7 @@ export default function SettingsProfilePage() {
                     {language === 'el' ? 'Προσφώνηση' : 'Honorific'}
                   </label>
                   <Select
-                    value={form.honorific || undefined}
+                    value={form.honorific || ''}
                     onValueChange={handleChange('honorific')}
                   >
                     <SelectTrigger className="rounded-xl" data-testid="profile-honorific-select" disabled={loading}>
@@ -1367,7 +1411,7 @@ export default function SettingsProfilePage() {
                                       {language === 'el' ? 'Άνοιγμα' : 'Opens'}
                                     </label>
                                     <select
-                                      className="h-10 w-full rounded-xl border border-pharma-grey-pale bg-white px-3 text-sm text-pharma-charcoal"
+                                      className="h-10 w-full rounded-xl border border-pharma-slate-grey/35 bg-white px-3 text-sm text-pharma-charcoal focus:border-pharma-teal/55 focus:ring-2 focus:ring-pharma-teal/30 focus:outline-none"
                                       value={entry.open}
                                       onChange={(event) => updateDay(day, { open: event.target.value })}
                                       disabled={pharmacyLoading || entry.closed}
@@ -1383,7 +1427,7 @@ export default function SettingsProfilePage() {
                                       {language === 'el' ? 'Κλείσιμο' : 'Closes'}
                                     </label>
                                     <select
-                                      className="h-10 w-full rounded-xl border border-pharma-grey-pale bg-white px-3 text-sm text-pharma-charcoal"
+                                      className="h-10 w-full rounded-xl border border-pharma-slate-grey/35 bg-white px-3 text-sm text-pharma-charcoal focus:border-pharma-teal/55 focus:ring-2 focus:ring-pharma-teal/30 focus:outline-none"
                                       value={entry.close}
                                       onChange={(event) => updateDay(day, { close: event.target.value })}
                                       disabled={pharmacyLoading || entry.closed}
