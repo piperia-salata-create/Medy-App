@@ -21,6 +21,63 @@ import {
 } from 'lucide-react';
 
 const isDev = process.env.NODE_ENV !== 'production';
+const HOURS_DAY_ORDER = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+const HOURS_DAY_LABELS = {
+  el: {
+    mon: '\u0394\u03b5\u03c5',
+    tue: '\u03a4\u03c1\u03b9',
+    wed: '\u03a4\u03b5\u03c4',
+    thu: '\u03a0\u03b5\u03bc',
+    fri: '\u03a0\u03b1\u03c1',
+    sat: '\u03a3\u03b1\u03b2',
+    sun: '\u039a\u03c5\u03c1'
+  },
+  en: {
+    mon: 'Mon',
+    tue: 'Tue',
+    wed: 'Wed',
+    thu: 'Thu',
+    fri: 'Fri',
+    sat: 'Sat',
+    sun: 'Sun'
+  }
+};
+
+const parseHoursSchedule = (hoursValue) => {
+  if (!hoursValue) return null;
+  let parsed = hoursValue;
+  if (typeof hoursValue === 'string') {
+    const trimmed = hoursValue.trim();
+    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return null;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch (error) {
+      return null;
+    }
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  return parsed;
+};
+
+const getFormattedHoursRows = (hoursValue, language) => {
+  const parsed = parseHoursSchedule(hoursValue);
+  if (!parsed) return [];
+  const labels = language === 'el' ? HOURS_DAY_LABELS.el : HOURS_DAY_LABELS.en;
+
+  return HOURS_DAY_ORDER.map((dayKey) => {
+    const entry = parsed?.[dayKey] || {};
+    const openValue = typeof entry.open === 'string' ? entry.open.trim() : '';
+    const closeValue = typeof entry.close === 'string' ? entry.close.trim() : '';
+    const isClosed = entry.closed === true || !openValue || !closeValue;
+    return {
+      dayKey,
+      dayLabel: labels[dayKey],
+      value: isClosed
+        ? (language === 'el' ? '\u039a\u03bb\u03b5\u03b9\u03c3\u03c4\u03cc' : 'Closed')
+        : `${openValue} - ${closeValue}`
+    };
+  });
+};
 
 export default function FavoritesPage() {
   const { user, loading: authLoading } = useAuth();
@@ -136,6 +193,7 @@ export default function FavoritesPage() {
           <div className="space-y-4 page-enter">
             {favorites.map((favorite) => {
               const hoursLabel = formatWeeklyHours(favorite.pharmacies?.hours, language);
+              const formattedHoursRows = getFormattedHoursRows(favorite.pharmacies?.hours, language);
               return (
               <Card 
                 key={favorite.id}
@@ -170,9 +228,22 @@ export default function FavoritesPage() {
                       <div className="flex flex-wrap items-center gap-2 mt-3">
                         {favorite.pharmacies?.is_on_call && <OnCallBadge />}
                         {favorite.pharmacies?.hours && (
-                          <div className="flex items-center gap-1 text-sm text-pharma-slate-grey">
-                            <Clock className="w-4 h-4" />
-                            <span className="line-clamp-2 break-words">{hoursLabel}</span>
+                          <div className="flex items-start gap-2 text-sm text-pharma-slate-grey">
+                            <Clock className="w-4 h-4 mt-0.5" />
+                            <div className="flex-1">
+                              {formattedHoursRows.length > 0 ? (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5">
+                                  {formattedHoursRows.map((row) => (
+                                    <div key={row.dayKey} className="flex items-center justify-between rounded-lg border border-pharma-grey-pale/70 bg-pharma-ice-blue/40 px-2.5 py-1.5 text-sm">
+                                      <span className="font-medium text-pharma-dark-slate">{row.dayLabel}</span>
+                                      <span className="text-pharma-charcoal">{row.value}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="line-clamp-2 break-words">{hoursLabel}</span>
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>
