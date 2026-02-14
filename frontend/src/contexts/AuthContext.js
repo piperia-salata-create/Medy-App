@@ -778,12 +778,38 @@ export const AuthProvider = ({ children }) => {
       setSession(session || null);
       setUser(session?.user || null);
       setHasSession(Boolean(session));
+
+      if (!session?.user) {
+        setProfile(null);
+        setProfileStatus('idle');
+        setProfileError(null);
+        setProfileMissing(false);
+        setProfileLoading(false);
+        setLoading(false);
+        setAuthReady(true);
+        return;
+      }
+
+      sessionRef.current = session;
+      setProfileStatus('loading');
+      setProfileLoading(true);
+      setProfileError(null);
+      setProfileMissing(false);
+
+      void fetchProfile(session.user.id, `authState:${event}`, {
+        session
+      }).finally(() => {
+        if (!isMountedRef.current) return;
+        setProfileLoading(false);
+        setLoading(false);
+        setAuthReady(true);
+      });
     });
 
     return () => {
       subscription?.unsubscribe();
     };
-  }, []);
+  }, [fetchProfile]);
 
   useEffect(() => {
     if (profileStatus !== 'loading') return;

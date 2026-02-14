@@ -16,6 +16,7 @@ import { EmptyState } from '../../components/ui/empty-states';
 import useGeolocation from '../../hooks/useGeolocation';
 import { formatDistance } from '../../lib/geoUtils';
 import { formatWeeklyHours } from '../../lib/formatHours';
+import { isOnDutyPresenceActive, PHARMACY_PRESENCE_HEARTBEAT_MS } from '../../lib/pharmacyPresence';
 import { toast } from 'sonner';
 import { 
   MapPin, 
@@ -180,6 +181,10 @@ export default function PatientDashboardLazy() {
   const [lightStageReady, setLightStageReady] = useState(patientDashboardUiCache.lightStageReady);
   const canLoadLight = isProfileReady && lightStageReady;
   const canLoadData = isProfileReady && deferMount && lightStageReady;
+  const pharmaciesById = useMemo(
+    () => new Map((pharmacies || []).map((p) => [p?.id, p])),
+    [pharmacies]
+  );
   const radiusKm = useMemo(() => {
     const raw =
       profile?.nearby_radius_km ??
@@ -480,8 +485,10 @@ export default function PatientDashboardLazy() {
         console.log('[PatientDashboard] submit nearby count', nearbyList.length);
       }
 
-      const nearbyIds = new Set(nearbyList.map((pharmacy) => pharmacy?.id).filter(Boolean));
-      const nearbyFullList = (pharmacies || []).filter((pharmacy) => nearbyIds.has(pharmacy?.id));
+      const nearbyFullList = nearbyList.map((pharmacy) => ({
+        ...(pharmaciesById.get(pharmacy?.id) || {}),
+        ...pharmacy
+      }));
       const targetPharmacyIds = getTargetPharmacyIds(nearbyFullList);
       if (targetPharmacyIds.length === 0) {
         toast.error(t('requestNoPharmacies'));
@@ -650,12 +657,13 @@ export default function PatientDashboardLazy() {
   const formatPharmacyHours = (hoursValue) => formatWeeklyHours(hoursValue, language);
 
   const getTargetPharmacyIds = (pharmacyList = []) => {
+    const nowMs = Date.now();
     const target = [];
     const favoriteIds = new Set(favorites || []);
     const eligiblePharmacies = (pharmacyList || []).filter((p) => {
       if (!p?.owner_id) return false;
       if (!p?.is_verified) return false;
-      const isOnCall = Boolean(p?.is_on_call);
+      const isOnCall = isOnDutyPresenceActive(p, nowMs);
       const isOpenNow = isPharmacyOpenNow(p?.hours);
       return isOnCall || isOpenNow;
     });
@@ -733,6 +741,14 @@ export default function PatientDashboardLazy() {
     if (!canLoadData) return;
     fetchNearbyPharmacies();
   }, [canLoadData, canQueryNearby, radiusKm, userLocation?.lat, userLocation?.lng, fetchNearbyPharmacies]);
+
+  useEffect(() => {
+    if (!canLoadData || !canQueryNearby) return;
+    const timer = setInterval(() => {
+      fetchNearbyPharmacies();
+    }, PHARMACY_PRESENCE_HEARTBEAT_MS);
+    return () => clearInterval(timer);
+  }, [canLoadData, canQueryNearby, fetchNearbyPharmacies]);
 
   // Light prefetch
   useEffect(() => {
@@ -1115,8 +1131,13 @@ export default function PatientDashboardLazy() {
                   ) : (
                     <div className="space-y-3">
                       {nearbyPharmacies.map((pharmacy) => {
-                        const hoursLabel = formatPharmacyHours(pharmacy.hours);
+                        const fullPharmacy = {
+                          ...(pharmaciesById.get(pharmacy?.id) || {}),
+                          ...pharmacy
+                        };
+                        const hoursLabel = formatPharmacyHours(fullPharmacy.hours);
                         const distanceKm = pharmacy.distance_km ?? pharmacy.distance;
+                        const onDutyActive = isOnDutyPresenceActive(fullPharmacy);
                         return (
                         <Card 
                           key={pharmacy.id}
@@ -1160,7 +1181,7 @@ export default function PatientDashboardLazy() {
                                 </div>
 
                                 <div className="flex flex-wrap items-center gap-2 mt-2">
-                                  {pharmacy.is_on_call && <OnCallBadge />}
+                                  {onDutyActive && <OnCallBadge />}
                                   <span className="text-xs font-medium text-pharma-teal bg-pharma-teal/10 px-2 py-0.5 rounded-full">
                                     {distanceKm !== null && distanceKm !== undefined
                                       ? formatDistance(distanceKm)

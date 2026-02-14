@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, memo } from 'react';
+import React, { Suspense, lazy, memo, useEffect } from 'react';
 import "@/App.css";
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
 import ToastHost from "./components/ToastHost";
@@ -9,6 +9,8 @@ import { LanguageProvider } from "./contexts/LanguageContext";
 import { AuthProvider, useAuthSession, useProfileState } from "./contexts/AuthContext";
 import { SeniorModeProvider } from "./contexts/SeniorModeContext";
 import { NotificationProvider } from "./contexts/NotificationContext";
+import { supabase } from "./lib/supabase";
+import { PHARMACY_PRESENCE_HEARTBEAT_MS } from "./lib/pharmacyPresence";
 
 // Pages
 const LandingPage = lazy(() => import("./pages/LandingPage"));
@@ -28,6 +30,7 @@ const PharmacistConnectionsPage = lazy(() => import("./pages/pharmacist/Pharmaci
 const PharmacistPatientRequestsPage = lazy(() => import("./pages/pharmacist/PharmacistPatientRequestsPage"));
 const PharmacyCreatePage = lazy(() => import("./pages/pharmacist/PharmacyCreatePage"));
 const InventoryPage = lazy(() => import("./pages/pharmacist/InventoryPage"));
+const PharmacistChatPage = lazy(() => import("./pages/pharmacist/PharmacistChatPage"));
 const SettingsPage = lazy(() => import("./pages/shared/SettingsPage"));
 const SettingsProfilePage = lazy(() => import("./pages/shared/SettingsProfilePage"));
 const NotificationsPage = lazy(() => import("./pages/shared/NotificationsPage"));
@@ -97,11 +100,131 @@ const PatientRoleShell = memo(() => (
   </div>
 ));
 
-const PharmacistRoleShell = memo(() => (
-  <div className="min-h-screen bg-pharma-ice-blue">
-    <Outlet />
-  </div>
-));
+const PharmacistRoleShell = memo(() => {
+  const { user, hasSession } = useAuthSession();
+  const { profileStatus, isPharmacist } = useProfileState();
+  const userId = user?.id || null;
+  const isPharmacistRole = isPharmacist();
+
+  useEffect(() => {
+    if (!hasSession || profileStatus !== 'ready' || !isPharmacistRole || !userId) {
+      return undefined;
+    }
+
+    let canceled = false;
+    let heartbeatInFlight = false;
+    let pharmacyId = null;
+    let isOnDuty = false;
+    let heartbeatTimer = null;
+
+    const syncOwnPharmacy = async () => {
+      const { data, error } = await supabase
+        .from('pharmacies')
+        .select('id, is_on_call')
+        .eq('owner_id', userId)
+        .limit(1)
+        .maybeSingle();
+
+      if (canceled) return;
+      if (error || !data) {
+        pharmacyId = null;
+        isOnDuty = false;
+        return;
+      }
+
+      pharmacyId = data.id;
+      isOnDuty = Boolean(data.is_on_call);
+    };
+
+    const sendHeartbeat = async () => {
+      if (canceled || heartbeatInFlight || !pharmacyId || !isOnDuty) return;
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+
+      heartbeatInFlight = true;
+      try {
+        const nowIso = new Date().toISOString();
+        const { data, error } = await supabase
+          .from('pharmacies')
+          .update({ is_on_call: true, updated_at: nowIso })
+          .eq('id', pharmacyId)
+          .select('is_on_call')
+          .maybeSingle();
+
+        if (!canceled && !error && data) {
+          isOnDuty = Boolean(data.is_on_call);
+        }
+      } finally {
+        heartbeatInFlight = false;
+      }
+    };
+
+    const refreshAndHeartbeat = async () => {
+      await syncOwnPharmacy();
+      await sendHeartbeat();
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void refreshAndHeartbeat();
+      }
+    };
+
+    const onOnline = () => {
+      void refreshAndHeartbeat();
+    };
+
+    const channel = supabase
+      .channel(`pharmacy_presence:${userId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'pharmacies', filter: `owner_id=eq.${userId}` },
+        (payload) => {
+          const row = payload?.new;
+          if (!row || typeof row !== 'object') return;
+          if (row.id) {
+            pharmacyId = row.id;
+          }
+          if (Object.prototype.hasOwnProperty.call(row, 'is_on_call')) {
+            isOnDuty = Boolean(row.is_on_call);
+          }
+        }
+      )
+      .subscribe();
+
+    void refreshAndHeartbeat();
+    heartbeatTimer = setInterval(() => {
+      void sendHeartbeat();
+    }, PHARMACY_PRESENCE_HEARTBEAT_MS);
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibilityChange);
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', onOnline);
+    }
+
+    return () => {
+      canceled = true;
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+      }
+      supabase.removeChannel(channel);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibilityChange);
+      }
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('online', onOnline);
+      }
+    };
+  }, [hasSession, profileStatus, isPharmacistRole, userId]);
+
+  return (
+    <div className="min-h-screen bg-pharma-ice-blue">
+      <Outlet />
+    </div>
+  );
+});
 
 // Protected Route Component
 const ProtectedRoute = ({ children, requiredRole }) => {
@@ -396,6 +519,16 @@ function AppRoutes() {
         <Route path="connections" element={
           <ProtectedSuspense>
             <PharmacistConnectionsPage />
+          </ProtectedSuspense>
+        } />
+        <Route path="chats" element={
+          <ProtectedSuspense>
+            <PharmacistChatPage />
+          </ProtectedSuspense>
+        } />
+        <Route path="chats/:conversationId" element={
+          <ProtectedSuspense>
+            <PharmacistChatPage />
           </ProtectedSuspense>
         } />
         <Route path="notifications" element={

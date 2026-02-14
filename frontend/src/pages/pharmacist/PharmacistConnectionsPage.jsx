@@ -21,7 +21,8 @@ import {
   Clock,
   Shield,
   Pill,
-  Search
+  Search,
+  MessageCircle
 } from 'lucide-react';
 
 export default function PharmacistConnectionsPage() {
@@ -38,6 +39,7 @@ export default function PharmacistConnectionsPage() {
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState('');
   const [sendingInvite, setSendingInvite] = useState(false);
+  const [openingDmUserId, setOpeningDmUserId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const loadedRef = useRef(false);
 
@@ -242,6 +244,23 @@ export default function PharmacistConnectionsPage() {
       fetchConnections();
     } catch (error) {
       toast.error(language === 'el' ? 'Σφάλμα' : 'Error');
+    }
+  };
+
+  const openDirectConversation = async (targetUserId) => {
+    if (!targetUserId) return;
+    setOpeningDmUserId(targetUserId);
+    try {
+      const { data, error } = await supabase.rpc('get_or_create_dm_conversation', {
+        target_user_id: targetUserId
+      });
+      if (error) throw error;
+      if (!data) throw new Error('Conversation not available');
+      navigate(`/pharmacist/chats/${data}`);
+    } catch (error) {
+      toast.error(error?.message || (language === 'el' ? 'Αποτυχία ανοίγματος συνομιλίας' : 'Failed to open conversation'));
+    } finally {
+      setOpeningDmUserId(null);
     }
   };
 
@@ -497,6 +516,21 @@ export default function PharmacistConnectionsPage() {
                           <p className="text-sm text-pharma-slate-grey truncate">
                             {otherUser?.email}
                           </p>
+                          <div className="mt-3">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="rounded-full gap-1.5"
+                              onClick={() => openDirectConversation(otherUser?.id)}
+                              disabled={openingDmUserId === otherUser?.id}
+                              data-testid={`open-dm-${conn.id}`}
+                            >
+                              <MessageCircle className="w-4 h-4" />
+                              {openingDmUserId === otherUser?.id
+                                ? (language === 'el' ? 'Opening...' : 'Opening...')
+                                : (language === 'el' ? 'Message' : 'Message')}
+                            </Button>
+                          </div>
                           {conn.accepted_at && (
                             <p className="text-xs text-pharma-slate-grey mt-2">
                               {language === 'el' ? 'Συνδέθηκε:' : 'Connected:'}{' '}
