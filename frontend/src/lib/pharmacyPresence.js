@@ -1,5 +1,6 @@
 export const PHARMACY_PRESENCE_HEARTBEAT_MS = 15000;
-export const PHARMACY_PRESENCE_STALE_AFTER_MS = 45000;
+// Hidden browser tabs can throttle timers to ~60s+, so keep a wider stale window.
+export const PHARMACY_PRESENCE_STALE_AFTER_MS = 180000;
 
 export const isOnDutyPresenceActive = (pharmacy, nowMs = Date.now()) => {
   if (!pharmacy?.is_on_call) return false;

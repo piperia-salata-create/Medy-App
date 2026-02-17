@@ -6,6 +6,7 @@ const DEFAULT_LANGUAGE = 'el';
 
 const searchCache = new Map();
 const reverseCache = new Map();
+const normalizeText = (value) => `${value ?? ''}`.trim();
 
 const getGoogleMapsApiKey = () => (
   process.env.REACT_APP_GOOGLE_MAPS_API_KEY
@@ -27,17 +28,29 @@ const toParsedAddressComponents = (components = []) => {
   const street = byType.route?.long_name || '';
   const locality = byType.locality?.long_name
     || byType.postal_town?.long_name
+    || byType.administrative_area_level_2?.long_name
     || byType.administrative_area_level_3?.long_name
     || '';
+  const administrativeAreaLevel1 = byType.administrative_area_level_1?.long_name || '';
+  const administrativeAreaLevel2 = byType.administrative_area_level_2?.long_name || '';
+  const administrativeAreaLevel3 = byType.administrative_area_level_3?.long_name || '';
   const postalCode = byType.postal_code?.long_name || '';
   const country = byType.country?.long_name || '';
+
+  const city = locality || administrativeAreaLevel2 || administrativeAreaLevel3 || '';
+  const region = administrativeAreaLevel1 || administrativeAreaLevel2 || '';
 
   return {
     street,
     street_number: streetNumber,
     locality,
+    administrative_area_level_1: administrativeAreaLevel1,
+    administrative_area_level_2: administrativeAreaLevel2,
+    administrative_area_level_3: administrativeAreaLevel3,
     postal_code: postalCode,
-    country
+    country,
+    city,
+    region
   };
 };
 
@@ -151,8 +164,13 @@ const reverseGeocodeWithGoogleDirect = async (lat, lng) => {
         street: null,
         street_number: null,
         locality: null,
+        administrative_area_level_1: null,
+        administrative_area_level_2: null,
+        administrative_area_level_3: null,
         postal_code: null,
-        country: null
+        country: null,
+        city: null,
+        region: null
       },
       lat,
       lng
@@ -173,8 +191,13 @@ const reverseGeocodeWithGoogleDirect = async (lat, lng) => {
         street: null,
         street_number: null,
         locality: null,
+        administrative_area_level_1: null,
+        administrative_area_level_2: null,
+        administrative_area_level_3: null,
         postal_code: null,
-        country: null
+        country: null,
+        city: null,
+        region: null
       },
       lat,
       lng
@@ -189,8 +212,13 @@ const reverseGeocodeWithGoogleDirect = async (lat, lng) => {
       street: null,
       street_number: null,
       locality: null,
+      administrative_area_level_1: null,
+      administrative_area_level_2: null,
+      administrative_area_level_3: null,
       postal_code: null,
-      country: null
+      country: null,
+      city: null,
+      region: null
     },
     lat: normalized.latitude,
     lng: normalized.longitude
@@ -287,4 +315,24 @@ export const reverseGeocode = async (lat, lng) => {
 
   reverseCache.set(cacheKey, payload);
   return payload;
+};
+
+export const extractCityRegion = (payload) => {
+  const components = payload?.address_components || {};
+  const city = normalizeText(
+    components.city
+    || components.locality
+    || components.administrative_area_level_2
+    || components.administrative_area_level_3
+  );
+  const region = normalizeText(
+    components.region
+    || components.administrative_area_level_1
+    || components.administrative_area_level_2
+  );
+
+  return {
+    city: city || null,
+    region: region || null
+  };
 };

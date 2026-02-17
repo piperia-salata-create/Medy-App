@@ -31,6 +31,7 @@ const PharmacistPatientRequestsPage = lazy(() => import("./pages/pharmacist/Phar
 const PharmacyCreatePage = lazy(() => import("./pages/pharmacist/PharmacyCreatePage"));
 const InventoryPage = lazy(() => import("./pages/pharmacist/InventoryPage"));
 const PharmacistChatPage = lazy(() => import("./pages/pharmacist/PharmacistChatPage"));
+const PharmacistNotificationsPage = lazy(() => import("./pages/pharmacist/PharmacistNotificationsPage"));
 const SettingsPage = lazy(() => import("./pages/shared/SettingsPage"));
 const SettingsProfilePage = lazy(() => import("./pages/shared/SettingsProfilePage"));
 const NotificationsPage = lazy(() => import("./pages/shared/NotificationsPage"));
@@ -533,7 +534,7 @@ function AppRoutes() {
         } />
         <Route path="notifications" element={
           <ProtectedSuspense>
-            <NotificationsPage />
+            <PharmacistNotificationsPage />
           </ProtectedSuspense>
         } />
         <Route path="settings" element={<Outlet />}>

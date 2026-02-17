@@ -21,13 +21,24 @@ const parseAddressComponents = (components: any[] = []) => {
     }
   }
 
+  const administrativeAreaLevel1 = byType.administrative_area_level_1?.long_name ?? null;
+  const administrativeAreaLevel2 = byType.administrative_area_level_2?.long_name ?? null;
+  const administrativeAreaLevel3 = byType.administrative_area_level_3?.long_name ?? null;
+  const locality = byType.locality?.long_name
+    ?? byType.postal_town?.long_name
+    ?? administrativeAreaLevel2
+    ?? administrativeAreaLevel3
+    ?? null;
+
   return {
     street: byType.route?.long_name ?? null,
     street_number: byType.street_number?.long_name ?? null,
-    locality: byType.locality?.long_name
-      ?? byType.postal_town?.long_name
-      ?? byType.administrative_area_level_3?.long_name
-      ?? null,
+    locality,
+    administrative_area_level_1: administrativeAreaLevel1,
+    administrative_area_level_2: administrativeAreaLevel2,
+    administrative_area_level_3: administrativeAreaLevel3,
+    city: locality,
+    region: administrativeAreaLevel1 ?? administrativeAreaLevel2 ?? null,
     postal_code: byType.postal_code?.long_name ?? null,
     country: byType.country?.long_name ?? null
   };
@@ -120,6 +131,11 @@ serve(async (req) => {
         street: null,
         street_number: null,
         locality: null,
+        administrative_area_level_1: null,
+        administrative_area_level_2: null,
+        administrative_area_level_3: null,
+        city: null,
+        region: null,
         postal_code: null,
         country: null
       },
@@ -149,6 +165,8 @@ serve(async (req) => {
     display_name: formattedAddress,
     address_text: addressText,
     address_components: parsedAddress,
+    city: parsedAddress.city,
+    region: parsedAddress.region,
     lat: Number.isFinite(location?.lat) ? Number(location.lat) : lat,
     lng: Number.isFinite(location?.lng) ? Number(location.lng) : lng
   };

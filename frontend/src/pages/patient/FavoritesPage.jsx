@@ -187,7 +187,7 @@ export default function FavoritesPage() {
               ? 'Προσθέστε φαρμακεία στα αγαπημένα σας για γρήγορη πρόσβαση'
               : 'Add pharmacies to your favorites for quick access'}
             actionLabel={language === 'el' ? 'Αναζήτηση Φαρμακείων' : 'Browse Pharmacies'}
-            action={() => window.location.href = '/patient'}
+            action={() => window.location.href = '/patient/pharmacies'}
           />
         ) : (
           <div className="space-y-4 page-enter">

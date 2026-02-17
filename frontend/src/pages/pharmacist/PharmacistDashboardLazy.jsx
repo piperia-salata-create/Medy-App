@@ -2,8 +2,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
-import { useNotifications } from '../../contexts/NotificationContext';
 import { supabase } from '../../lib/supabase';
+import { PHARMACY_PRESENCE_HEARTBEAT_MS } from '../../lib/pharmacyPresence';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
@@ -37,6 +37,38 @@ const pharmacistDashboardUiCache = {
   lightStageReady: false
 };
 
+const CONNECTION_STATUS_LABELS = {
+  pending: {
+    el: '\u0391\u03bd\u03b1\u03bc\u03bf\u03bd\u03ae \u03b1\u03c0\u03bf\u03b4\u03bf\u03c7\u03ae\u03c2',
+    en: 'Pending acceptance'
+  },
+  accepted: {
+    el: '\u03a3\u03c5\u03bd\u03b4\u03b5\u03b4\u03b5\u03bc\u03ad\u03bd\u03bf\u03c2',
+    en: 'Connected'
+  },
+  rejected: {
+    el: '\u0391\u03c0\u03bf\u03c1\u03c1\u03af\u03c6\u03b8\u03b7\u03ba\u03b5',
+    en: 'Rejected'
+  },
+  cancelled: {
+    el: '\u0391\u03ba\u03c5\u03c1\u03ce\u03b8\u03b7\u03ba\u03b5',
+    en: 'Cancelled'
+  }
+};
+
+const getConnectionStatusLabel = (status, language) => {
+  const normalizedStatus = typeof status === 'string' ? status.toLowerCase() : '';
+  const labels = CONNECTION_STATUS_LABELS[normalizedStatus];
+  if (!labels) return status || '-';
+  return language === 'el' ? labels.el : labels.en;
+};
+
+const getConnectionDisplayName = (connection, language) => (
+  connection?.other_pharmacy_name
+  || connection?.other_full_name
+  || (language === 'el' ? '\u03a6\u03b1\u03c1\u03bc\u03b1\u03ba\u03bf\u03c0\u03bf\u03b9\u03cc\u03c2' : 'Pharmacist')
+);
+
 const areConnectionSummariesEqual = (prev = {}, next = {}) => {
   if (prev.incoming !== next.incoming) return false;
   if (prev.outgoing !== next.outgoing) return false;
@@ -49,7 +81,7 @@ const areConnectionSummariesEqual = (prev = {}, next = {}) => {
     const n = nextRecent[i];
     if ((p?.id || '') !== (n?.id || '')) return false;
     if ((p?.status || '') !== (n?.status || '')) return false;
-    if ((p?.updated_at || '') !== (n?.updated_at || '')) return false;
+    if ((p?.created_at || '') !== (n?.created_at || '')) return false;
   }
   return true;
 };
@@ -98,7 +130,6 @@ export default function PharmacistDashboardLazy() {
   const userId = user?.id || null;
   const profileId = profile?.id || null;
   const { t, language } = useLanguage();
-  const { unreadCount } = useNotifications();
   const navigate = useNavigate();
   const isProfileReady = profileStatus === 'ready';
   const cachedData = userId ? pharmacistDashboardDataCache.get(userId) : null;
@@ -118,6 +149,7 @@ export default function PharmacistDashboardLazy() {
   
   // Stock requests state
   const [stockRequests, setStockRequests] = useState(cachedData?.stockRequests || { pending: 0, recent: [] });
+  const [exchangeUnreadCount, setExchangeUnreadCount] = useState(0);
   const [incomingRequests, setIncomingRequests] = useState(cachedData?.incomingRequests || []);
   const [incomingInitialLoading, setIncomingInitialLoading] = useState(false);
   const [incomingRefreshing, setIncomingRefreshing] = useState(false);
@@ -257,25 +289,42 @@ export default function PharmacistDashboardLazy() {
     if (!canLoadLight) return;
     if (!userId) return;
     try {
-      const { data, error } = await supabase
+      const { data: rawConnections, error: rawConnectionsError } = await supabase
         .from('pharmacist_connections')
-        .select(`
-          *,
-          requester:profiles!pharmacist_connections_requester_pharmacist_id_fkey (
-            id, full_name, pharmacy_name
-          ),
-          target:profiles!pharmacist_connections_target_pharmacist_id_fkey (
-            id, full_name, pharmacy_name
-          )
-        `)
-        .or(`requester_pharmacist_id.eq.${userId},target_pharmacist_id.eq.${userId}`);
+        .select('id, status, created_at, requester_pharmacist_id, target_pharmacist_id')
+        .or(`requester_pharmacist_id.eq.${userId},target_pharmacist_id.eq.${userId}`)
+        .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (rawConnectionsError) throw rawConnectionsError;
 
-      const all = data || [];
+      const { data: connectionProfiles, error: rpcError } = await supabase
+        .rpc('get_my_pharmacist_connections');
+
+      if (rpcError) throw rpcError;
+
+      const profileByConnectionId = new Map(
+        (connectionProfiles || []).map((row) => [row.connection_id, row])
+      );
+
+      const all = (rawConnections || []).map((connection) => {
+        const profileDetails = profileByConnectionId.get(connection.id) || {};
+        return {
+          ...connection,
+          other_pharmacist_id: profileDetails.other_pharmacist_id || null,
+          other_full_name: profileDetails.other_full_name || null,
+          other_pharmacy_name: profileDetails.other_pharmacy_name || null
+        };
+      });
+
       const incoming = all.filter(c => c.status === 'pending' && c.target_pharmacist_id === userId).length;
       const outgoing = all.filter(c => c.status === 'pending' && c.requester_pharmacist_id === userId).length;
-      const acceptedList = all.filter(c => c.status === 'accepted');
+      const acceptedList = all
+        .filter(c => c.status === 'accepted')
+        .map((connection) => ({
+          ...connection,
+          display_name: getConnectionDisplayName(connection, language),
+          status_label: getConnectionStatusLabel(connection.status, language)
+        }));
       
       const nextSummary = {
         incoming,
@@ -287,7 +336,55 @@ export default function PharmacistDashboardLazy() {
     } catch (error) {
       console.error('Error fetching connections:', error);
     }
+  }, [canLoadLight, userId, language]);
+
+  const fetchExchangeUnreadCount = useCallback(async () => {
+    if (!canLoadLight || !userId) {
+      setExchangeUnreadCount(0);
+      return;
+    }
+
+    try {
+      const { count, error } = await supabase
+        .from('exchange_notifications')
+        .select('id', { count: 'exact', head: true })
+        .is('read_at', null);
+
+      if (error) throw error;
+      setExchangeUnreadCount(count || 0);
+    } catch (error) {
+      if (DEBUG) {
+        console.error('Error fetching exchange unread count:', error);
+      }
+    }
   }, [canLoadLight, userId]);
+
+  useEffect(() => {
+    if (!canLoadLight || !userId) {
+      setExchangeUnreadCount(0);
+      return undefined;
+    }
+
+    fetchExchangeUnreadCount();
+
+    const channel = supabase
+      .channel(`exchange_notifications_badge:${userId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'exchange_notifications',
+          filter: `recipient_user_id=eq.${userId}`
+        },
+        () => fetchExchangeUnreadCount()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [canLoadLight, fetchExchangeUnreadCount, userId]);
 
   // Fetch stock requests
   const fetchStockRequests = useCallback(async () => {
@@ -448,7 +545,6 @@ export default function PharmacistDashboardLazy() {
       toast.error(language === 'el' ? 'Σφάλμα ενημέρωσης' : 'Update failed');
     }
   };
-
   // Send invite
   const sendInvite = async () => {
     if (!inviteEmail.trim()) {
@@ -456,24 +552,32 @@ export default function PharmacistDashboardLazy() {
       return;
     }
 
+    const normalizedInviteEmail = inviteEmail.trim().toLowerCase();
+    const normalizedOwnEmail = (user?.email || profile?.email || '').trim().toLowerCase();
+    if (normalizedOwnEmail && normalizedInviteEmail === normalizedOwnEmail) {
+      toast.error(language === 'el' ? 'Δεν μπορείτε να προσκαλέσετε τον εαυτό σας' : 'Cannot invite yourself');
+      return;
+    }
+
     setSendingInvite(true);
     try {
-      // Find pharmacist by email
-      const { data: targetProfile, error: findError } = await supabase
-        .from('profiles')
-        .select('id, full_name, email, role, pharmacy_name')
-        .eq('email', inviteEmail.trim().toLowerCase())
-        .eq('role', 'pharmacist')
-        .maybeSingle();
-      if (findError) {
-        console.error('Error finding pharmacist by email:', findError);
-      }
+      const { data: target, error: findError } = await supabase
+        .rpc('find_pharmacist_profile_by_email', { p_email: normalizedInviteEmail });
 
-      if (findError || !targetProfile) {
-        toast.error(language === 'el' ? 'Δεν βρέθηκε φαρμακοποιός' : 'Pharmacist not found');
+      if (findError) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('Error finding pharmacist by email via RPC:', findError);
+        }
+        toast.error(language === 'el' ? '\u03A3\u03C6\u03AC\u03BB\u03BC\u03B1 \u03B1\u03BD\u03B1\u03B6\u03AE\u03C4\u03B7\u03C3\u03B7\u03C2 \u03C6\u03B1\u03C1\u03BC\u03B1\u03BA\u03BF\u03C0\u03BF\u03B9\u03BF\u03CD' : 'Error looking up pharmacist');
         return;
       }
 
+      const targetProfile = Array.isArray(target) ? target[0] : target;
+
+      if (!targetProfile || (Array.isArray(target) && target.length === 0)) {
+        toast.error(language === 'el' ? '\u0394\u03B5\u03BD \u03B2\u03C1\u03AD\u03B8\u03B7\u03BA\u03B5 \u03B5\u03B3\u03B3\u03C1\u03B1\u03C6\u03AE \u03C6\u03B1\u03C1\u03BC\u03B1\u03BA\u03BF\u03C0\u03BF\u03B9\u03BF\u03CD \u03BC\u03B5 \u03B1\u03C5\u03C4\u03CC \u03C4\u03BF email' : 'No pharmacist profile found with this email');
+        return;
+      }
       if (targetProfile.id === userId) {
         toast.error(language === 'el' ? 'Δεν μπορείτε να προσκαλέσετε τον εαυτό σας' : 'Cannot invite yourself');
         return;
@@ -641,6 +745,36 @@ export default function PharmacistDashboardLazy() {
     };
   }, [pharmacyId, fetchIncomingRequests, canLoadData]);
 
+  useEffect(() => {
+    if (!canLoadLight) return;
+    if (!userId || !pharmacy?.id) return;
+    if (!isOnDuty) return;
+
+    let isCancelled = false;
+
+    const sendPresenceHeartbeat = async () => {
+      const nowIso = new Date().toISOString();
+      const { error } = await supabase
+        .from('pharmacies')
+        .update({ updated_at: nowIso })
+        .eq('id', pharmacy.id)
+        .eq('owner_id', userId)
+        .eq('is_on_call', true);
+
+      if (error && DEBUG && !isCancelled) {
+        console.error('Pharmacy heartbeat failed:', error);
+      }
+    };
+
+    sendPresenceHeartbeat();
+    const timer = setInterval(sendPresenceHeartbeat, PHARMACY_PRESENCE_HEARTBEAT_MS);
+
+    return () => {
+      isCancelled = true;
+      clearInterval(timer);
+    };
+  }, [canLoadLight, isOnDuty, pharmacy?.id, userId]);
+
   if (!isProfileReady || !deferMount) {
     return (
       <div className="min-h-screen bg-pharma-ice-blue p-4 space-y-4">
@@ -732,11 +866,16 @@ export default function PharmacistDashboardLazy() {
               </Button>
             </Link>
             <Link to="/pharmacist/notifications">
-              <Button variant="ghost" size="icon" className="rounded-full relative" data-testid="nav-notifications-btn">
-                <Bell className="w-5 h-5" />
-                {unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-pharma-coral text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">
-                    {unreadCount}
+              <Button
+                variant="ghost"
+                className={`rounded-full gap-2 relative ${exchangeUnreadCount > 0 ? 'bg-pharma-teal/10 text-pharma-teal hover:bg-pharma-teal/15' : ''}`}
+                data-testid="nav-notifications-btn"
+              >
+                <Bell className="w-4 h-4" />
+                {language === 'el' ? 'Ειδοποιήσεις' : 'Notifications'}
+                {exchangeUnreadCount > 0 && (
+                  <span className="bg-pharma-coral text-white text-xs px-1.5 py-0.5 rounded-full">
+                    {exchangeUnreadCount > 9 ? '9+' : exchangeUnreadCount}
                   </span>
                 )}
               </Button>
@@ -793,6 +932,11 @@ export default function PharmacistDashboardLazy() {
               <Button variant="ghost" className="w-full justify-start gap-3 rounded-xl">
                 <Bell className="w-5 h-5" />
                 {language === 'el' ? 'Ειδοποιήσεις' : 'Notifications'}
+                {exchangeUnreadCount > 0 && (
+                  <span className="bg-pharma-coral text-white text-xs px-1.5 py-0.5 rounded-full ml-auto">
+                    {exchangeUnreadCount > 9 ? '9+' : exchangeUnreadCount}
+                  </span>
+                )}
               </Button>
             </Link>
             <Link to="/pharmacist/settings" onClick={() => setMobileMenuOpen(false)}>
@@ -1101,5 +1245,3 @@ export default function PharmacistDashboardLazy() {
     </div>
   );
 }
-
-

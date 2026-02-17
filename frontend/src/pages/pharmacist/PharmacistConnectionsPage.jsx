@@ -25,6 +25,42 @@ import {
   MessageCircle
 } from 'lucide-react';
 
+const CONNECTION_STATUS_LABELS = {
+  pending: {
+    el: '\u0391\u03bd\u03b1\u03bc\u03bf\u03bd\u03ae \u03b1\u03c0\u03bf\u03b4\u03bf\u03c7\u03ae\u03c2',
+    en: 'Pending acceptance'
+  },
+  accepted: {
+    el: '\u03a3\u03c5\u03bd\u03b4\u03b5\u03b4\u03b5\u03bc\u03ad\u03bd\u03bf\u03c2',
+    en: 'Connected'
+  },
+  rejected: {
+    el: '\u0391\u03c0\u03bf\u03c1\u03c1\u03af\u03c6\u03b8\u03b7\u03ba\u03b5',
+    en: 'Rejected'
+  },
+  cancelled: {
+    el: '\u0391\u03ba\u03c5\u03c1\u03ce\u03b8\u03b7\u03ba\u03b5',
+    en: 'Cancelled'
+  }
+};
+
+const getConnectionStatusLabel = (status, language) => {
+  const normalizedStatus = typeof status === 'string' ? status.toLowerCase() : '';
+  const labels = CONNECTION_STATUS_LABELS[normalizedStatus];
+  if (!labels) return status || '-';
+  return language === 'el' ? labels.el : labels.en;
+};
+
+const getConnectionDisplayName = (connection, language) => (
+  connection?.other_pharmacy_name
+  || connection?.other_full_name
+  || (language === 'el' ? '\u03a6\u03b1\u03c1\u03bc\u03b1\u03ba\u03bf\u03c0\u03bf\u03b9\u03cc\u03c2' : 'Pharmacist')
+);
+
+const getConnectionSubtitle = (connection) => (
+  connection?.other_pharmacy_name && connection?.other_full_name ? connection.other_full_name : null
+);
+
 export default function PharmacistConnectionsPage() {
   const { user, profile, isPharmacist } = useAuth();
   const userId = user?.id || null;
@@ -65,31 +101,44 @@ export default function PharmacistConnectionsPage() {
     }
     
     try {
-      const { data, error } = await supabase
+      const { data: connectionRows, error: connectionError } = await supabase
         .from('pharmacist_connections')
-        .select(`
-          *,
-          requester:profiles!pharmacist_connections_requester_pharmacist_id_fkey (
-            id, full_name, email, pharmacy_name
-          ),
-          target:profiles!pharmacist_connections_target_pharmacist_id_fkey (
-            id, full_name, email, pharmacy_name
-          )
-        `)
+        .select('id, status, created_at, accepted_at, requester_pharmacist_id, target_pharmacist_id')
         .or(`requester_pharmacist_id.eq.${userId},target_pharmacist_id.eq.${userId}`)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (connectionError) throw connectionError;
 
-      const allConnections = data || [];
-      
+      const { data: connectionProfiles, error: rpcError } = await supabase
+        .rpc('get_my_pharmacist_connections');
+
+      if (rpcError) throw rpcError;
+
+      const profileByConnectionId = new Map(
+        (connectionProfiles || []).map((row) => [row.connection_id, row])
+      );
+
+      const allConnections = (connectionRows || []).map((connection) => {
+        const profileDetails = profileByConnectionId.get(connection.id) || {};
+        return {
+          id: connection.id,
+          status: connection.status,
+          created_at: connection.created_at,
+          accepted_at: connection.accepted_at,
+          direction: connection.requester_pharmacist_id === userId ? 'outgoing' : 'incoming',
+          other_pharmacist_id: profileDetails.other_pharmacist_id || null,
+          other_full_name: profileDetails.other_full_name || null,
+          other_pharmacy_name: profileDetails.other_pharmacy_name || null
+        };
+      });
+
       // Categorize connections
       const accepted = allConnections.filter(c => c.status === 'accepted');
       const pendingIn = allConnections.filter(
-        c => c.status === 'pending' && c.target_pharmacist_id === userId
+        c => c.status === 'pending' && c.direction === 'incoming'
       );
       const pendingOut = allConnections.filter(
-        c => c.status === 'pending' && c.requester_pharmacist_id === userId
+        c => c.status === 'pending' && c.direction === 'outgoing'
       );
 
       setConnections(accepted);
@@ -102,7 +151,6 @@ export default function PharmacistConnectionsPage() {
       setLoading(false);
     }
   }, [userId]);
-
   // Send invite by email
   const sendInvite = async () => {
     if (!inviteEmail.trim()) {
@@ -110,32 +158,44 @@ export default function PharmacistConnectionsPage() {
       return;
     }
 
+    const normalizedInviteEmail = inviteEmail.trim().toLowerCase();
+    const normalizedOwnEmail = (user?.email || profile?.email || '').trim().toLowerCase();
+    if (normalizedOwnEmail && normalizedInviteEmail === normalizedOwnEmail) {
+      toast.error(
+        language === 'el'
+          ? 'Δεν μπορείτε να στείλετε πρόσκληση στον εαυτό σας'
+          : 'Cannot send invite to yourself'
+      );
+      return;
+    }
+
     setSendingInvite(true);
     try {
-      // Find pharmacist by email
-      const { data: targetProfile, error: findError } = await supabase
-        .from('profiles')
-        .select('id, full_name, email, role, pharmacy_name')
-        .eq('email', inviteEmail.trim().toLowerCase())
-        .eq('role', 'pharmacist')
-        .maybeSingle();
-      if (findError) {
-        console.error('Error finding pharmacist by email:', findError);
-      }
+      const { data: target, error: findError } = await supabase
+        .rpc('find_pharmacist_profile_by_email', { p_email: normalizedInviteEmail });
 
-      if (findError || !targetProfile) {
-        toast.error(
-          language === 'el' 
-            ? 'Δεν βρέθηκε φαρμακοποιός με αυτό το email' 
-            : 'No pharmacist found with this email'
-        );
+      if (findError) {
+        if (process.env.NODE_ENV !== 'production') {
+          console.error('Error finding pharmacist by email via RPC:', findError);
+        }
+        toast.error(language === 'el' ? '\u03A3\u03C6\u03AC\u03BB\u03BC\u03B1 \u03B1\u03BD\u03B1\u03B6\u03AE\u03C4\u03B7\u03C3\u03B7\u03C2 \u03C6\u03B1\u03C1\u03BC\u03B1\u03BA\u03BF\u03C0\u03BF\u03B9\u03BF\u03CD' : 'Error looking up pharmacist');
         return;
       }
 
+      const targetProfile = Array.isArray(target) ? target[0] : target;
+
+      if (!targetProfile || (Array.isArray(target) && target.length === 0)) {
+        toast.error(
+          language === 'el'
+            ? '\u0394\u03b5\u03bd \u03b2\u03c1\u03ad\u03b8\u03b7\u03ba\u03b5 \u03b5\u03b3\u03b3\u03c1\u03b1\u03c6\u03ae \u03c6\u03b1\u03c1\u03bc\u03b1\u03ba\u03bf\u03c0\u03bf\u03b9\u03bf\u03cd \u03bc\u03b5 \u03b1\u03c5\u03c4\u03cc \u03c4\u03bf email'
+            : 'No pharmacist profile found with this email'
+        );
+        return;
+      }
       if (targetProfile.id === userId) {
         toast.error(
-          language === 'el' 
-            ? 'Δεν μπορείτε να στείλετε πρόσκληση στον εαυτό σας' 
+          language === 'el'
+            ? 'Δεν μπορείτε να στείλετε πρόσκληση στον εαυτό σας'
             : 'Cannot send invite to yourself'
         );
         return;
@@ -178,8 +238,8 @@ export default function PharmacistConnectionsPage() {
       if (insertError) throw insertError;
 
       toast.success(
-        language === 'el' 
-          ? 'Πρόσκληση εστάλη επιτυχώς!' 
+        language === 'el'
+          ? 'Πρόσκληση εστάλη επιτυχώς!'
           : 'Invite sent successfully!'
       );
       setInviteDialogOpen(false);
@@ -290,13 +350,11 @@ export default function PharmacistConnectionsPage() {
   }, [userId, fetchConnections]);
 
   // Filter connections
-  const filteredConnections = connections.filter(c => {
-    const otherUser = c.requester_pharmacist_id === userId ? c.target : c.requester;
-    return (
-      otherUser?.full_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      otherUser?.pharmacy_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      otherUser?.email?.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase();
+  const filteredConnections = connections.filter((connection) => {
+    if (!normalizedSearchQuery) return true;
+    return [connection.other_pharmacy_name, connection.other_full_name]
+      .some((value) => typeof value === 'string' && value.toLowerCase().includes(normalizedSearchQuery));
   });
 
   if (!isPharmacist()) {
@@ -334,8 +392,8 @@ export default function PharmacistConnectionsPage() {
       <main className="max-w-6xl mx-auto px-4 py-6 space-y-8">
         {/* Pending Incoming Invites */}
         {pendingIncoming.length > 0 && (
-          <section className="page-enter">
-            <h2 className="font-heading text-lg font-semibold text-pharma-dark-slate mb-4 flex items-center gap-2">
+          <section className="page-enter bg-white rounded-2xl shadow-card border border-pharma-grey-pale p-5">
+            <h2 className="font-heading text-lg font-semibold text-pharma-dark-slate mb-5 flex items-center gap-2">
               <Clock className="w-5 h-5 text-pharma-steel-blue" />
               {language === 'el' ? 'Εισερχόμενες Προσκλήσεις' : 'Incoming Invites'}
               <span className="bg-pharma-teal text-white text-xs px-2 py-0.5 rounded-full">
@@ -357,10 +415,15 @@ export default function PharmacistConnectionsPage() {
                         </div>
                         <div>
                           <p className="font-medium text-pharma-dark-slate">
-                            {conn.requester?.full_name || 'Unknown'}
+                            {getConnectionDisplayName(conn, language)}
                           </p>
-                          <p className="text-sm text-pharma-slate-grey">
-                            {conn.requester?.pharmacy_name || conn.requester?.email}
+                          {getConnectionSubtitle(conn) && (
+                            <p className="text-sm text-pharma-slate-grey">
+                              {getConnectionSubtitle(conn)}
+                            </p>
+                          )}
+                          <p className="text-xs text-pharma-slate-grey mt-1">
+                            {getConnectionStatusLabel(conn.status, language)}
                           </p>
                         </div>
                       </div>
@@ -395,8 +458,8 @@ export default function PharmacistConnectionsPage() {
 
         {/* Pending Outgoing Invites */}
         {pendingOutgoing.length > 0 && (
-          <section className="page-enter" style={{ animationDelay: '0.05s' }}>
-            <h2 className="font-heading text-lg font-semibold text-pharma-dark-slate mb-4 flex items-center gap-2">
+          <section className="page-enter bg-white rounded-2xl shadow-card border border-pharma-grey-pale p-5" style={{ animationDelay: '0.05s' }}>
+            <h2 className="font-heading text-lg font-semibold text-pharma-dark-slate mb-5 flex items-center gap-2">
               <Mail className="w-5 h-5 text-pharma-royal-blue" />
               {language === 'el' ? 'Απεσταλμένες Προσκλήσεις' : 'Sent Invites'}
             </h2>
@@ -415,13 +478,15 @@ export default function PharmacistConnectionsPage() {
                         </div>
                         <div>
                           <p className="font-medium text-pharma-dark-slate">
-                            {conn.target?.full_name || 'Unknown'}
+                            {getConnectionDisplayName(conn, language)}
                           </p>
-                          <p className="text-sm text-pharma-slate-grey">
-                            {conn.target?.pharmacy_name || conn.target?.email}
-                          </p>
+                          {getConnectionSubtitle(conn) && (
+                            <p className="text-sm text-pharma-slate-grey">
+                              {getConnectionSubtitle(conn)}
+                            </p>
+                          )}
                           <p className="text-xs text-pharma-slate-grey mt-1">
-                            {language === 'el' ? 'Αναμονή απάντησης...' : 'Awaiting response...'}
+                            {getConnectionStatusLabel(conn.status, language)}
                           </p>
                         </div>
                       </div>
@@ -443,7 +508,7 @@ export default function PharmacistConnectionsPage() {
         )}
 
         {/* Accepted Connections */}
-        <section className="page-enter" style={{ animationDelay: '0.1s' }}>
+        <section className="page-enter bg-white rounded-2xl shadow-card border border-pharma-grey-pale p-5" style={{ animationDelay: '0.1s' }}>
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
             <h2 className="font-heading text-lg font-semibold text-pharma-dark-slate flex items-center gap-2">
               <Shield className="w-5 h-5 text-pharma-sea-green" />
@@ -488,12 +553,10 @@ export default function PharmacistConnectionsPage() {
             />
           ) : (
             <div className="grid md:grid-cols-2 gap-4">
-              {filteredConnections.map((conn) => {
-                const otherUser = conn.requester_pharmacist_id === userId ? conn.target : conn.requester;
-                return (
+              {filteredConnections.map((conn) => (
                   <Card 
                     key={conn.id}
-                    className="bg-white rounded-2xl shadow-card border-pharma-grey-pale hover:shadow-card-hover transition-all"
+                    className="bg-white rounded-2xl shadow-card border-pharma-grey-pale hover:shadow-card-hover hover:-translate-y-[1px] transition-all"
                     data-testid={`connection-${conn.id}`}
                   >
                     <CardContent className="p-5">
@@ -504,29 +567,29 @@ export default function PharmacistConnectionsPage() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
                             <h3 className="font-heading font-semibold text-pharma-dark-slate truncate">
-                              {otherUser?.full_name || 'Unknown'}
+                              {getConnectionDisplayName(conn, language)}
                             </h3>
                             <VerifiedBadge />
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-pharma-sea-green/10 text-pharma-sea-green">
+                              {getConnectionStatusLabel(conn.status, language)}
+                            </span>
                           </div>
-                          {otherUser?.pharmacy_name && (
+                          {getConnectionSubtitle(conn) && (
                             <p className="text-sm text-pharma-charcoal truncate">
-                              {otherUser.pharmacy_name}
+                              {getConnectionSubtitle(conn)}
                             </p>
                           )}
-                          <p className="text-sm text-pharma-slate-grey truncate">
-                            {otherUser?.email}
-                          </p>
                           <div className="mt-3">
                             <Button
                               size="sm"
                               variant="outline"
-                              className="rounded-full gap-1.5"
-                              onClick={() => openDirectConversation(otherUser?.id)}
-                              disabled={openingDmUserId === otherUser?.id}
+                              className="rounded-full gap-1.5 border-pharma-grey-pale"
+                              onClick={() => openDirectConversation(conn.other_pharmacist_id)}
+                              disabled={openingDmUserId === conn.other_pharmacist_id}
                               data-testid={`open-dm-${conn.id}`}
                             >
                               <MessageCircle className="w-4 h-4" />
-                              {openingDmUserId === otherUser?.id
+                              {openingDmUserId === conn.other_pharmacist_id
                                 ? (language === 'el' ? 'Opening...' : 'Opening...')
                                 : (language === 'el' ? 'Message' : 'Message')}
                             </Button>
@@ -543,8 +606,7 @@ export default function PharmacistConnectionsPage() {
                       </div>
                     </CardContent>
                   </Card>
-                );
-              })}
+              ))}
             </div>
           )}
         </section>

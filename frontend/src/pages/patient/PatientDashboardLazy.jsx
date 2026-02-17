@@ -31,7 +31,7 @@ import {
   Navigation,
   Menu,
   X,
-  Map,
+  Map as MapIcon,
   List,
   Locate,
   Send
@@ -160,6 +160,9 @@ export default function PatientDashboardLazy() {
   const [viewMode, setViewMode] = useState('list'); // 'list' or 'map'
   const [requestDialogOpen, setRequestDialogOpen] = useState(false);
   const [requestMedicine, setRequestMedicine] = useState('');
+  const [requestMedicineSuggestions, setRequestMedicineSuggestions] = useState([]);
+  const [requestMedicineFocused, setRequestMedicineFocused] = useState(false);
+  const [searchingRequestMedicines, setSearchingRequestMedicines] = useState(false);
   const [requestDosage, setRequestDosage] = useState('');
   const [requestForm, setRequestForm] = useState('');
   const [requestUrgency, setRequestUrgency] = useState('normal');
@@ -199,6 +202,57 @@ export default function PatientDashboardLazy() {
   const hasRadius = Number.isFinite(radiusKm) && radiusKm > 0;
   const canQueryNearby = hasLocation && hasRadius;
   const showNearbyDisabledState = nearbyDisabled || !canQueryNearby;
+  const showRequestMedicineSuggestions = requestMedicineFocused && requestMedicine.trim().length > 0;
+
+  useEffect(() => {
+    const query = requestMedicine.trim();
+    if (!query) {
+      setRequestMedicineSuggestions([]);
+      setSearchingRequestMedicines(false);
+      return undefined;
+    }
+
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      setSearchingRequestMedicines(true);
+      try {
+        const { data, error } = await supabase
+          .from('medicines')
+          .select('id, name')
+          .ilike('name', `%${query}%`)
+          .order('name', { ascending: true })
+          .limit(8);
+
+        if (!active) return;
+        if (error) {
+          setRequestMedicineSuggestions([]);
+          return;
+        }
+
+        setRequestMedicineSuggestions(data || []);
+      } catch (error) {
+        if (active) {
+          setRequestMedicineSuggestions([]);
+        }
+      } finally {
+        if (active) {
+          setSearchingRequestMedicines(false);
+        }
+      }
+    }, 180);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [requestMedicine]);
+
+  useEffect(() => {
+    if (!requestDialogOpen) {
+      setRequestMedicineSuggestions([]);
+      setRequestMedicineFocused(false);
+    }
+  }, [requestDialogOpen]);
 
   // Fetch pharmacies
   const fetchPharmacies = useCallback(async () => {
@@ -526,6 +580,8 @@ export default function PatientDashboardLazy() {
       toast.success(t('requestSent'));
       setRequestDialogOpen(false);
       setRequestMedicine('');
+      setRequestMedicineSuggestions([]);
+      setRequestMedicineFocused(false);
       setRequestDosage('');
       setRequestForm('');
       setRequestUrgency('normal');
@@ -1052,7 +1108,7 @@ export default function PatientDashboardLazy() {
                     className={`p-2 ${viewMode === 'map' ? 'bg-pharma-teal text-white' : 'bg-white text-pharma-slate-grey hover:bg-pharma-ice-blue'}`}
                     data-testid="view-map-btn"
                   >
-                    <Map className="w-4 h-4" />
+                    <MapIcon className="w-4 h-4" />
                   </button>
                 </div>
                 <Link to="/patient/pharmacies">
@@ -1067,10 +1123,10 @@ export default function PatientDashboardLazy() {
 
             <div className="mb-3 min-h-[18px] text-xs text-pharma-slate-grey">
               {nearbyRefreshing && !loading ? (
-                language === 'el' ? 'Γίνεται ενημέρωση κοντινών φαρμακείων...' : 'Updating nearby pharmacies...'
+                language === 'el' ? '\u0393\u03af\u03bd\u03b5\u03c4\u03b1\u03b9 \u03b5\u03bd\u03b7\u03bc\u03ad\u03c1\u03c9\u03c3\u03b7 \u03ba\u03bf\u03bd\u03c4\u03b9\u03bd\u03ce\u03bd \u03c6\u03b1\u03c1\u03bc\u03b1\u03ba\u03b5\u03af\u03c9\u03bd...' : 'Updating nearby pharmacies...'
               ) : (
                 <span className="invisible">
-                  {language === 'el' ? 'Γίνεται ενημέρωση κοντινών φαρμακείων...' : 'Updating nearby pharmacies...'}
+                  {language === 'el' ? '\u0393\u03af\u03bd\u03b5\u03c4\u03b1\u03b9 \u03b5\u03bd\u03b7\u03bc\u03ad\u03c1\u03c9\u03c3\u03b7 \u03ba\u03bf\u03bd\u03c4\u03b9\u03bd\u03ce\u03bd \u03c6\u03b1\u03c1\u03bc\u03b1\u03ba\u03b5\u03af\u03c9\u03bd...' : 'Updating nearby pharmacies...'}
                 </span>
               )}
             </div>
@@ -1080,16 +1136,16 @@ export default function PatientDashboardLazy() {
                 icon={MapPin}
                 title={
                   !hasLocation
-                    ? (language === 'el' ? 'Απαιτείται τοποθεσία' : 'Location required')
-                    : (language === 'el' ? 'Ορίστε ακτίνα αναζήτησης' : 'Set search radius')
+                    ? (language === 'el' ? '\u0391\u03c0\u03b1\u03b9\u03c4\u03b5\u03af\u03c4\u03b1\u03b9 \u03c4\u03bf\u03c0\u03bf\u03b8\u03b5\u03c3\u03af\u03b1' : 'Location required')
+                    : (language === 'el' ? '\u039f\u03c1\u03af\u03c3\u03c4\u03b5 \u03b1\u03ba\u03c4\u03af\u03bd\u03b1 \u03b1\u03bd\u03b1\u03b6\u03ae\u03c4\u03b7\u03c3\u03b7\u03c2' : 'Set search radius')
                 }
                 description={
                   !hasLocation
                     ? (language === 'el'
-                      ? 'Ενεργοποιήστε την τοποθεσία για να δείτε κοντινά φαρμακεία.'
+                      ? '\u0395\u03bd\u03b5\u03c1\u03b3\u03bf\u03c0\u03bf\u03b9\u03ae\u03c3\u03c4\u03b5 \u03c4\u03b7\u03bd \u03c4\u03bf\u03c0\u03bf\u03b8\u03b5\u03c3\u03af\u03b1 \u03b3\u03b9\u03b1 \u03bd\u03b1 \u03b4\u03b5\u03af\u03c4\u03b5 \u03ba\u03bf\u03bd\u03c4\u03b9\u03bd\u03ac \u03c6\u03b1\u03c1\u03bc\u03b1\u03ba\u03b5\u03af\u03b1.'
                       : 'Enable location to see nearby pharmacies.')
                     : (language === 'el'
-                      ? 'Ορίστε την ακτίνα αναζήτησης για να εμφανιστούν κοντινά φαρμακεία.'
+                      ? '\u039f\u03c1\u03af\u03c3\u03c4\u03b5 \u03c4\u03b7\u03bd \u03b1\u03ba\u03c4\u03af\u03bd\u03b1 \u03b1\u03bd\u03b1\u03b6\u03ae\u03c4\u03b7\u03c3\u03b7\u03c2 \u03b3\u03b9\u03b1 \u03bd\u03b1 \u03b5\u03bc\u03c6\u03b1\u03bd\u03b9\u03c3\u03c4\u03bf\u03cd\u03bd \u03ba\u03bf\u03bd\u03c4\u03b9\u03bd\u03ac \u03c6\u03b1\u03c1\u03bc\u03b1\u03ba\u03b5\u03af\u03b1.'
                       : 'Set your search radius to see nearby pharmacies.')
                 }
                 action={
@@ -1099,8 +1155,8 @@ export default function PatientDashboardLazy() {
                 }
                 actionLabel={
                   !hasLocation
-                    ? (language === 'el' ? 'Χρήση τοποθεσίας' : 'Use location')
-                    : (language === 'el' ? 'Ρυθμίσεις' : 'Settings')
+                    ? (language === 'el' ? '\u03a7\u03c1\u03ae\u03c3\u03b7 \u03c4\u03bf\u03c0\u03bf\u03b8\u03b5\u03c3\u03af\u03b1\u03c2' : 'Use location')
+                    : (language === 'el' ? '\u03a1\u03c5\u03b8\u03bc\u03af\u03c3\u03b5\u03b9\u03c2' : 'Settings')
                 }
               />
             ) : (
@@ -1126,7 +1182,7 @@ export default function PatientDashboardLazy() {
                   ) : nearbyPharmacies.length === 0 ? (
                     <EmptyState 
                       icon={MapPin}
-                      title={language === 'el' ? 'Δεν βρέθηκαν κοντινά φαρμακεία.' : 'No nearby pharmacies found.'}
+                      title={language === 'el' ? '\u0394\u03b5\u03bd \u03b2\u03c1\u03ad\u03b8\u03b7\u03ba\u03b1\u03bd \u03ba\u03bf\u03bd\u03c4\u03b9\u03bd\u03ac \u03c6\u03b1\u03c1\u03bc\u03b1\u03ba\u03b5\u03af\u03b1.' : 'No nearby pharmacies found.'}
                     />
                   ) : (
                     <div className="space-y-3">
@@ -1252,13 +1308,49 @@ export default function PatientDashboardLazy() {
               <label className="text-sm font-medium text-pharma-charcoal">
                 {t('requestMedicineLabel')} *
               </label>
-              <Input
-                value={requestMedicine}
-                onChange={(e) => setRequestMedicine(e.target.value)}
-                placeholder={t('requestMedicinePlaceholder')}
-                className="rounded-xl"
-                data-testid="patient-request-medicine-input"
-              />
+              <div className="relative">
+                <Input
+                  value={requestMedicine}
+                  onChange={(e) => setRequestMedicine(e.target.value)}
+                  onFocus={() => setRequestMedicineFocused(true)}
+                  onBlur={() => {
+                    window.setTimeout(() => setRequestMedicineFocused(false), 120);
+                  }}
+                  placeholder={t('requestMedicinePlaceholder')}
+                  className="rounded-xl"
+                  data-testid="patient-request-medicine-input"
+                />
+                {showRequestMedicineSuggestions && (
+                  <div className="absolute z-30 mt-1 w-full rounded-xl border border-pharma-grey-pale bg-white shadow-card max-h-56 overflow-y-auto">
+                    {searchingRequestMedicines ? (
+                      <div className="px-3 py-2 text-xs text-pharma-slate-grey">
+                        {language === 'el' ? '\u0391\u03bd\u03b1\u03b6\u03ae\u03c4\u03b7\u03c3\u03b7...' : 'Searching...'}
+                      </div>
+                    ) : requestMedicineSuggestions.length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-pharma-slate-grey">
+                        {language === 'el'
+                          ? '\u0394\u03b5\u03bd \u03b2\u03c1\u03ad\u03b8\u03b7\u03ba\u03b1\u03bd \u03c6\u03ac\u03c1\u03bc\u03b1\u03ba\u03b1. \u039c\u03c0\u03bf\u03c1\u03b5\u03af\u03c4\u03b5 \u03bd\u03b1 \u03c3\u03c4\u03b5\u03af\u03bb\u03b5\u03c4\u03b5 \u03cc\u03c0\u03c9\u03c2 \u03c4\u03bf \u03c0\u03bb\u03b7\u03ba\u03c4\u03c1\u03bf\u03bb\u03bf\u03b3\u03ae\u03c3\u03b1\u03c4\u03b5.'
+                          : 'No medicines found. You can still send your typed request.'}
+                      </div>
+                    ) : (
+                      requestMedicineSuggestions.map((medicine) => (
+                        <button
+                          key={medicine.id}
+                          type="button"
+                          className="w-full text-left px-3 py-2 text-sm text-pharma-dark-slate hover:bg-pharma-ice-blue/70"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => {
+                            setRequestMedicine(medicine.name || '');
+                            setRequestMedicineFocused(false);
+                          }}
+                        >
+                          {medicine.name}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium text-pharma-charcoal">

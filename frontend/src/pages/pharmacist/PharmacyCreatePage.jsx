@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { supabase } from '../../lib/supabase';
-import { geocodeAddress } from '../../lib/geocoding/googleGeocoding';
+import { geocodeAddress, reverseGeocode, extractCityRegion } from '../../lib/geocoding/googleGeocoding';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
@@ -94,6 +94,7 @@ export default function PharmacyCreatePage() {
   const [formError, setFormError] = useState('');
   const [existingPharmacyId, setExistingPharmacyId] = useState(null);
   const [existingCoords, setExistingCoords] = useState({ latitude: null, longitude: null });
+  const [existingLocationMeta, setExistingLocationMeta] = useState({ city: null, region: null });
   const [hoursSchedule, setHoursSchedule] = useState(createEmptySchedule());
   const [legacyHours, setLegacyHours] = useState('');
 
@@ -126,6 +127,10 @@ export default function PharmacyCreatePage() {
             latitude: data.latitude ?? null,
             longitude: data.longitude ?? null
           });
+          setExistingLocationMeta({
+            city: data.city ?? null,
+            region: data.region ?? null
+          });
           setForm({
             name: data.name || '',
             address: data.address || '',
@@ -139,6 +144,7 @@ export default function PharmacyCreatePage() {
         } else {
           setExistingPharmacyId(null);
           setExistingCoords({ latitude: null, longitude: null });
+          setExistingLocationMeta({ city: null, region: null });
           setForm({ ...emptyForm });
           setHoursSchedule(createEmptySchedule());
           setLegacyHours('');
@@ -247,7 +253,15 @@ export default function PharmacyCreatePage() {
 
   const resolveAddressCoordinates = async (address) => {
     const trimmed = address.trim();
-    if (!trimmed) return { latitude: null, longitude: null, status: 'empty' };
+    if (!trimmed) {
+      return {
+        latitude: null,
+        longitude: null,
+        city: null,
+        region: null,
+        status: 'empty'
+      };
+    }
 
     try {
       const results = await geocodeAddress(trimmed, {
@@ -260,14 +274,59 @@ export default function PharmacyCreatePage() {
         const lat = Number(first.latitude);
         const lng = Number(first.longitude);
         if (!Number.isNaN(lat) && !Number.isNaN(lng)) {
-          return { latitude: lat, longitude: lng, status: 'ok' };
+          const location = extractCityRegion(first);
+          return {
+            latitude: lat,
+            longitude: lng,
+            city: location.city,
+            region: location.region,
+            status: 'ok'
+          };
         }
       }
 
-      return { latitude: null, longitude: null, status: 'not_found' };
+      return {
+        latitude: null,
+        longitude: null,
+        city: null,
+        region: null,
+        status: 'not_found'
+      };
     } catch (err) {
       console.error('Geocode failed:', err);
-      return { latitude: null, longitude: null, status: 'error' };
+      return {
+        latitude: null,
+        longitude: null,
+        city: null,
+        region: null,
+        status: 'error'
+      };
+    }
+  };
+
+  const resolveLocationMeta = async (latitudeValue, longitudeValue, fallback = {}) => {
+    const lat = Number(latitudeValue);
+    const lng = Number(longitudeValue);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return {
+        city: fallback?.city || null,
+        region: fallback?.region || null
+      };
+    }
+
+    try {
+      const reverseData = await reverseGeocode(lat, lng);
+      const parsed = extractCityRegion(reverseData);
+      return {
+        city: parsed.city || fallback?.city || null,
+        region: parsed.region || fallback?.region || null
+      };
+    } catch (error) {
+      console.warn('Reverse geocode metadata failed:', error);
+      return {
+        city: fallback?.city || null,
+        region: fallback?.region || null
+      };
     }
   };
 
@@ -294,6 +353,25 @@ export default function PharmacyCreatePage() {
         longitudeValue = existingCoords.longitude;
       }
 
+      const normalizedLat = Number.isFinite(Number(latitudeValue)) ? Number(latitudeValue) : null;
+      const normalizedLon = Number.isFinite(Number(longitudeValue)) ? Number(longitudeValue) : null;
+      const existingLat = Number.isFinite(Number(existingCoords.latitude)) ? Number(existingCoords.latitude) : null;
+      const existingLon = Number.isFinite(Number(existingCoords.longitude)) ? Number(existingCoords.longitude) : null;
+      const coordsChanged = normalizedLat !== existingLat || normalizedLon !== existingLon;
+
+      let cityValue = isEditMode ? (existingLocationMeta.city ?? null) : null;
+      let regionValue = isEditMode ? (existingLocationMeta.region ?? null) : null;
+      const shouldResolveLocationMeta = !isEditMode || coordsChanged;
+
+      if (shouldResolveLocationMeta) {
+        const locationMeta = await resolveLocationMeta(latitudeValue, longitudeValue, {
+          city: geocodeResult.city,
+          region: geocodeResult.region
+        });
+        cityValue = locationMeta.city;
+        regionValue = locationMeta.region;
+      }
+
       if (isEditMode) {
         const { error } = await supabase
           .from('pharmacies')
@@ -305,11 +383,14 @@ export default function PharmacyCreatePage() {
             is_on_call: Boolean(form.is_on_call),
             on_call_schedule: form.on_call_schedule.trim() || null,
             latitude: latitudeValue,
-            longitude: longitudeValue
+            longitude: longitudeValue,
+            city: cityValue,
+            region: regionValue
           })
           .eq('id', existingPharmacyId);
 
         if (error) throw error;
+        setExistingLocationMeta({ city: cityValue, region: regionValue });
 
         toast.success(language === 'el' ? 'Η ενημέρωση ολοκληρώθηκε.' : 'Pharmacy updated.');
       } else {
@@ -334,7 +415,9 @@ export default function PharmacyCreatePage() {
             is_on_call: Boolean(form.is_on_call),
             on_call_schedule: form.on_call_schedule.trim() || null,
             latitude: latitudeValue,
-            longitude: longitudeValue
+            longitude: longitudeValue,
+            city: cityValue,
+            region: regionValue
           });
 
         if (error) {
@@ -349,6 +432,7 @@ export default function PharmacyCreatePage() {
           }
           throw error;
         }
+        setExistingLocationMeta({ city: cityValue, region: regionValue });
 
         toast.success(language === 'el' ? 'Το φαρμακείο δημιουργήθηκε.' : 'Pharmacy created.');
       }

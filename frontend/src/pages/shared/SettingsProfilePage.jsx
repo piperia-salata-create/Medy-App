@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { supabase } from '../../lib/supabase';
-import { geocodeAddress, reverseGeocode } from '../../lib/geocoding/googleGeocoding';
+import { geocodeAddress, reverseGeocode, extractCityRegion } from '../../lib/geocoding/googleGeocoding';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
@@ -126,6 +126,12 @@ const cloneSchedule = (schedule) => dayOrder.reduce((acc, day) => {
   return acc;
 }, {});
 
+const normalizeOptionalText = (value) => {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+};
+
 export default function SettingsProfilePage() {
   const { user, profile, loading: authLoading, isPharmacist, fetchProfile } = useAuth();
   const { t, language } = useLanguage();
@@ -151,6 +157,8 @@ export default function SettingsProfilePage() {
   const [originalPharmacyId, setOriginalPharmacyId] = useState(null);
   const [existingCoords, setExistingCoords] = useState({ latitude: null, longitude: null });
   const [originalCoords, setOriginalCoords] = useState({ latitude: null, longitude: null });
+  const [existingLocationMeta, setExistingLocationMeta] = useState({ city: null, region: null });
+  const [originalLocationMeta, setOriginalLocationMeta] = useState({ city: null, region: null });
   const [pendingCoords, setPendingCoords] = useState(null);
   const [hoursSchedule, setHoursSchedule] = useState(createEmptySchedule());
   const [originalHoursSchedule, setOriginalHoursSchedule] = useState(createEmptySchedule());
@@ -323,6 +331,14 @@ export default function SettingsProfilePage() {
             latitude: data.latitude ?? null,
             longitude: data.longitude ?? null
           });
+          setExistingLocationMeta({
+            city: data.city ?? null,
+            region: data.region ?? null
+          });
+          setOriginalLocationMeta({
+            city: data.city ?? null,
+            region: data.region ?? null
+          });
           setPendingCoords(null);
           setPharmacyForm({
             name: data.name || '',
@@ -348,6 +364,8 @@ export default function SettingsProfilePage() {
           setOriginalPharmacyId(null);
           setExistingCoords({ latitude: null, longitude: null });
           setOriginalCoords({ latitude: null, longitude: null });
+          setExistingLocationMeta({ city: null, region: null });
+          setOriginalLocationMeta({ city: null, region: null });
           setPendingCoords(null);
           setPharmacyForm({ ...emptyPharmacyForm });
           setPharmacyOriginal({ ...emptyPharmacyForm });
@@ -545,6 +563,7 @@ export default function SettingsProfilePage() {
 
   const selectGeocodeResult = (result) => {
     if (!result) return;
+    const location = extractCityRegion(result);
     suppressGeocodeRef.current = true;
     setPharmacyForm((prev) => ({
       ...prev,
@@ -554,6 +573,8 @@ export default function SettingsProfilePage() {
       latitude: result.latitude,
       longitude: result.longitude,
       address_text: result.address_text || result.displayName,
+      city: location.city,
+      region: location.region,
       source: 'search'
     });
     setGeocodeResults([]);
@@ -581,6 +602,7 @@ export default function SettingsProfilePage() {
       await waitForGeocodeRateLimit();
       const data = await reverseGeocode(latValue, lngValue);
       if (mapPinRequestIdRef.current !== requestId) return;
+      const location = extractCityRegion(data);
 
       const addressText = data?.address_text || data?.formatted_address || data?.display_name || fallbackAddress;
       if (addressText) {
@@ -595,6 +617,8 @@ export default function SettingsProfilePage() {
         latitude: latValue,
         longitude: lngValue,
         address_text: addressText || null,
+        city: normalizeOptionalText(location?.city),
+        region: normalizeOptionalText(location?.region),
         source: 'map'
       });
     } catch (err) {
@@ -607,6 +631,8 @@ export default function SettingsProfilePage() {
         latitude: latValue,
         longitude: lngValue,
         address_text: fallbackAddress || null,
+        city: null,
+        region: null,
         source: 'map'
       });
     } finally {
@@ -629,6 +655,8 @@ export default function SettingsProfilePage() {
       latitude: latValue,
       longitude: lngValue,
       address_text: pharmacyForm.address.trim() || null,
+      city: existingLocationMeta.city ?? null,
+      region: existingLocationMeta.region ?? null,
       source: 'map'
     });
 
@@ -641,6 +669,30 @@ export default function SettingsProfilePage() {
       await runMapReverseGeocode(latValue, lngValue);
     }
   };
+
+  const resolveLocationMeta = useCallback(async (latitudeValue, longitudeValue, fallback = {}) => {
+    if (latitudeValue == null || longitudeValue == null) {
+      return {
+        city: normalizeOptionalText(fallback?.city),
+        region: normalizeOptionalText(fallback?.region)
+      };
+    }
+
+    try {
+      const payload = await reverseGeocode(latitudeValue, longitudeValue);
+      const parsed = extractCityRegion(payload);
+      return {
+        city: normalizeOptionalText(parsed?.city) || normalizeOptionalText(fallback?.city),
+        region: normalizeOptionalText(parsed?.region) || normalizeOptionalText(fallback?.region)
+      };
+    } catch (error) {
+      console.warn('Failed to resolve city/region from coordinates:', error);
+      return {
+        city: normalizeOptionalText(fallback?.city),
+        region: normalizeOptionalText(fallback?.region)
+      };
+    }
+  }, []);
 
   const profileHasChanges = useMemo(() => {
     const radiusRaw = String(form.radius_km ?? '').trim();
@@ -824,6 +876,8 @@ export default function SettingsProfilePage() {
               latitude: existingCoords.latitude,
               longitude: existingCoords.longitude,
               address_text: null,
+              city: existingLocationMeta.city ?? null,
+              region: existingLocationMeta.region ?? null,
               status: 'ok'
             };
             if (pendingCoords) {
@@ -831,6 +885,8 @@ export default function SettingsProfilePage() {
                 latitude: pendingCoords.latitude,
                 longitude: pendingCoords.longitude,
                 address_text: pendingCoords.address_text ?? null,
+                city: pendingCoords.city ?? existingLocationMeta.city ?? null,
+                region: pendingCoords.region ?? existingLocationMeta.region ?? null,
                 status: 'ok'
               };
             } else if (!isEditMode || addressChanged) {
@@ -838,6 +894,8 @@ export default function SettingsProfilePage() {
                 latitude: null,
                 longitude: null,
                 address_text: null,
+                city: isEditMode ? (existingLocationMeta.city ?? null) : null,
+                region: isEditMode ? (existingLocationMeta.region ?? null) : null,
                 status: 'manual'
               };
             }
@@ -846,10 +904,21 @@ export default function SettingsProfilePage() {
             let longitudeValue = geocodeResult.longitude;
             const geocodeFailed = geocodeResult.status !== 'ok';
             const addressTextValue = (geocodeResult.address_text ?? pharmacyForm.address.trim()) || null;
+            let cityValue = isEditMode ? (existingLocationMeta.city ?? null) : null;
+            let regionValue = isEditMode ? (existingLocationMeta.region ?? null) : null;
 
             if (geocodeFailed && isEditMode) {
               latitudeValue = existingCoords.latitude;
               longitudeValue = existingCoords.longitude;
+            }
+
+            if (latitudeValue != null && longitudeValue != null && (!isEditMode || coordsChanged)) {
+              const locationMeta = await resolveLocationMeta(latitudeValue, longitudeValue, {
+                city: geocodeResult.city,
+                region: geocodeResult.region
+              });
+              cityValue = locationMeta.city;
+              regionValue = locationMeta.region;
             }
 
             if (DEBUG_MAP_PIN) {
@@ -874,6 +943,8 @@ export default function SettingsProfilePage() {
                 updates.latitude = latitudeValue;
                 updates.longitude = longitudeValue;
                 updates.address_text = addressTextValue;
+                updates.city = cityValue;
+                updates.region = regionValue;
               }
 
               if (Object.keys(updates).length > 0) {
@@ -919,7 +990,9 @@ export default function SettingsProfilePage() {
                     is_on_call: Boolean(pharmacyForm.is_on_call),
                     on_call_schedule: pharmacyForm.on_call_schedule.trim() || null,
                     latitude: latitudeValue,
-                    longitude: longitudeValue
+                    longitude: longitudeValue,
+                    city: cityValue,
+                    region: regionValue
                   })
                   .select('id')
                   .single();
@@ -940,6 +1013,8 @@ export default function SettingsProfilePage() {
                   setOriginalPharmacyId(data?.id || null);
                   setExistingCoords({ latitude: latitudeValue ?? null, longitude: longitudeValue ?? null });
                   setOriginalCoords({ latitude: latitudeValue ?? null, longitude: longitudeValue ?? null });
+                  setExistingLocationMeta({ city: cityValue, region: regionValue });
+                  setOriginalLocationMeta({ city: cityValue, region: regionValue });
                   setPendingCoords(null);
                   const nextPharmacy = {
                     name: pharmacyForm.name.trim(),
@@ -963,6 +1038,8 @@ export default function SettingsProfilePage() {
             if (!pharmacyError && isEditMode && addressChanged) {
               setExistingCoords({ latitude: latitudeValue ?? null, longitude: longitudeValue ?? null });
               setOriginalCoords({ latitude: latitudeValue ?? null, longitude: longitudeValue ?? null });
+              setExistingLocationMeta({ city: cityValue, region: regionValue });
+              setOriginalLocationMeta({ city: cityValue, region: regionValue });
               setPendingCoords(null);
             }
 
@@ -980,6 +1057,10 @@ export default function SettingsProfilePage() {
                 setExistingCoords({ latitude: latitudeValue ?? null, longitude: longitudeValue ?? null });
                 setOriginalCoords({ latitude: latitudeValue ?? null, longitude: longitudeValue ?? null });
                 setPendingCoords(null);
+              }
+              if (addressChanged || coordsChanged) {
+                setExistingLocationMeta({ city: cityValue, region: regionValue });
+                setOriginalLocationMeta({ city: cityValue, region: regionValue });
               }
               if (scheduleChanged) {
                 setOriginalHoursSchedule(cloneSchedule(hoursSchedule));
@@ -1030,6 +1111,7 @@ export default function SettingsProfilePage() {
     setPharmacyForm({ ...pharmacyOriginal });
     setExistingPharmacyId(originalPharmacyId);
     setExistingCoords({ ...originalCoords });
+    setExistingLocationMeta({ ...originalLocationMeta });
     setPendingCoords(null);
     setHoursSchedule(cloneSchedule(originalHoursSchedule));
     setLegacyHours(originalLegacyHours);
@@ -1182,21 +1264,6 @@ export default function SettingsProfilePage() {
                   </div>
                 )}
 
-                <div className="rounded-xl border border-pharma-grey-pale/60 bg-white">
-                  <div className="flex items-center justify-between p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-lg bg-pharma-teal/10 flex items-center justify-center">
-                        <Shield className="w-5 h-5 text-pharma-teal" />
-                      </div>
-                      <span className="text-sm text-pharma-charcoal">
-                        {language === 'el' ? 'Ρόλος' : 'Role'}
-                      </span>
-                    </div>
-                    <span className="text-sm text-pharma-slate-grey truncate max-w-[55%]">
-                      {roleLabel}
-                    </span>
-                  </div>
-                </div>
               </div>
 
               {isPharmacistRole && (

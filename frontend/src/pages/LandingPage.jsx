@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
+import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import useInstallHandler from '../hooks/useInstallHandler';
@@ -13,14 +14,19 @@ import {
   ArrowRight,
   CheckCircle2,
   Zap,
-  Heart
+  Heart,
+  UserRound,
+  LayoutDashboard
 } from 'lucide-react';
 
 export default function LandingPage() {
   const { t, language, setLanguage } = useLanguage();
+  const { user, isPharmacist } = useAuth();
   const { isInstalled, handleInstallClick } = useInstallHandler();
 
   const installLabel = isInstalled ? t('installInstalledLabel') : t('installCta');
+  const authCtaPath = !user ? '/signin' : (isPharmacist() ? '/pharmacist' : '/patient');
+  const authCtaLabel = !user ? t('signIn') : t('dashboard');
 
   const features = [
     {
@@ -67,41 +73,57 @@ export default function LandingPage() {
     <div className="min-h-screen bg-white">
       {/* Navigation */}
       <nav className="sticky top-0 z-50 glass border-b border-pharma-grey-pale/50">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl gradient-teal flex items-center justify-center shadow-sm">
+        <div className="max-w-6xl mx-auto px-3 sm:px-6 h-16 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 sm:gap-3">
+          <Link to="/" className="inline-flex max-w-full items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl gradient-teal flex items-center justify-center shadow-sm flex-shrink-0">
               <Pill className="w-5 h-5 text-white" />
             </div>
-            <span className="font-heading font-bold text-lg text-pharma-dark-slate tracking-tight">
+            <span className="font-heading font-bold text-base sm:text-lg text-pharma-dark-slate tracking-tight truncate">
               {t('appName')}
             </span>
           </Link>
 
-          <div className="flex items-center gap-2">
+          <div className="justify-self-center">
             <Select value={language} onValueChange={setLanguage}>
-              <SelectTrigger className="w-[100px] h-9 rounded-full bg-pharma-ice-blue/50 border-0 text-sm" data-testid="language-select-landing">
-                <Globe className="w-3.5 h-3.5 mr-1.5 text-pharma-slate-grey" />
+              <SelectTrigger className="w-[84px] sm:w-[100px] h-10 rounded-full bg-pharma-ice-blue/50 border-0 text-sm px-2.5 sm:px-3" data-testid="language-select-landing">
+                <Globe className="w-3.5 h-3.5 mr-1 text-pharma-slate-grey flex-shrink-0" />
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="el">Ελληνικά</SelectItem>
-                <SelectItem value="en">English</SelectItem>
+                <SelectItem value="el">{t('greek')}</SelectItem>
+                <SelectItem value="en">{t('english')}</SelectItem>
               </SelectContent>
             </Select>
+          </div>
 
-            <Link to="/signin" className="hidden sm:block">
-              <Button variant="ghost" size="sm" className="rounded-full h-9 px-4 text-pharma-dark-slate hover:bg-pharma-ice-blue" data-testid="landing-signin-btn">
-                {t('signIn')}
+          <div className="justify-self-end flex items-center gap-2">
+            <Link to={authCtaPath}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-full h-10 w-10 sm:w-auto px-0 sm:px-4 text-pharma-dark-slate bg-white/80 border-pharma-grey-pale hover:bg-pharma-ice-blue gap-1.5 inline-flex items-center justify-center focus:ring-2 focus:ring-primary/30"
+                data-testid={!user ? 'landing-signin-btn' : 'landing-dashboard-btn'}
+              >
+                {user ? (
+                  <LayoutDashboard className="w-4 h-4 flex-shrink-0" />
+                ) : (
+                  <UserRound className="w-4 h-4 flex-shrink-0" />
+                )}
+                <span className="hidden sm:inline">{authCtaLabel}</span>
+                <span className="sm:hidden sr-only">{authCtaLabel}</span>
               </Button>
             </Link>
             <Button
               size="sm"
-              className="rounded-full h-9 px-5 gradient-teal text-white shadow-sm hover:shadow-md transition-shadow"
+              variant="outline"
+              className="rounded-full h-10 w-10 sm:w-auto px-0 sm:px-4 text-pharma-dark-slate bg-white/80 border-pharma-grey-pale hover:bg-pharma-ice-blue inline-flex items-center justify-center gap-1.5 focus:ring-2 focus:ring-primary/30"
               data-testid="landing-signup-btn"
               onClick={handleInstallClick}
               disabled={isInstalled}
             >
-              {installLabel}
+              <Smartphone className="w-4 h-4 flex-shrink-0" />
+              <span className="hidden sm:inline">{installLabel}</span>
+              <span className="sm:hidden sr-only">{installLabel}</span>
             </Button>
           </div>
         </div>
