@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import useGeolocation from '../../hooks/useGeolocation';
 import { supabase } from '../../lib/supabase';
+import EntityAvatar from '../../components/common/EntityAvatar';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Card, CardContent } from '../../components/ui/card';
@@ -23,6 +24,7 @@ const arePharmaciesEqual = (prevList = [], nextList = []) => {
     if ((prev.updated_at || '') !== (next.updated_at || '')) return false;
     if ((prev.name || '') !== (next.name || '')) return false;
     if ((prev.address || '') !== (next.address || '')) return false;
+    if ((prev.avatar_path || '') !== (next.avatar_path || '')) return false;
     if (Boolean(prev.is_on_call) !== Boolean(next.is_on_call)) return false;
     if ((prev.distance_km ?? null) !== (next.distance_km ?? null)) return false;
   }
@@ -84,7 +86,7 @@ export default function PatientPharmaciesPage() {
       } else {
         const { data, error } = await supabase
           .from('pharmacies')
-          .select('id,name,address,phone,hours,is_on_call,is_verified,latitude,longitude,updated_at')
+          .select('*')
           .eq('is_verified', true)
           .order('name', { ascending: true })
           .limit(200);
@@ -244,9 +246,14 @@ export default function PatientPharmaciesPage() {
               >
                 <CardContent className="p-4">
                   <div className="flex items-start gap-3">
-                    <div className="w-11 h-11 rounded-xl bg-pharma-teal/10 flex items-center justify-center flex-shrink-0">
-                      <Pill className="w-5 h-5 text-pharma-teal" />
-                    </div>
+                    <EntityAvatar
+                      avatarPath={pharmacy?.avatar_path}
+                      alt={pharmacy?.name || (language === 'el' ? 'Λογότυπο φαρμακείου' : 'Pharmacy logo')}
+                      className="w-11 h-11 rounded-xl bg-pharma-teal/10 flex items-center justify-center flex-shrink-0 overflow-hidden"
+                      imageClassName="h-full w-full object-cover"
+                      fallback={<Pill className="w-5 h-5 text-pharma-teal" />}
+                      dataTestId={`patient-pharmacy-avatar-${pharmacy.id}`}
+                    />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">

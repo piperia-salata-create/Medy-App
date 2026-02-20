@@ -8,7 +8,7 @@ import { Input } from '../../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '../../components/ui/tabs';
 import { EmptyState } from '../../components/ui/empty-states';
-import { ArrowLeft, Inbox, CheckCircle2, XCircle, Clock, Search } from 'lucide-react';
+import { ArrowLeft, Inbox, CheckCircle2, XCircle, Clock, Search, Info } from 'lucide-react';
 import { toast } from 'sonner';
 
 const isDev = process.env.NODE_ENV !== 'production';
@@ -35,6 +35,7 @@ const TXT = {
     expiredAt: 'Έληξε',
     executedTab: 'Εκτελεσμένα',
     markExecuted: 'Εκτελέστηκε',
+    markExecutedDisclaimer: 'Πατήστε «Εκτελέστηκε» όταν ολοκληρώσετε τη συναλλαγή σας με τον ασθενή.',
     executedToast: 'Το αίτημα εκτελέστηκε.'
   },
   en: {
@@ -49,6 +50,7 @@ const TXT = {
     expiredAt: 'Expired',
     executedTab: 'Executed',
     markExecuted: 'Executed',
+    markExecutedDisclaimer: 'Tap "Executed" when you\'ve finished the transaction with the patient.',
     executedToast: 'Request marked as executed.'
   }
 };
@@ -143,6 +145,7 @@ export default function PharmacistPatientRequestsPage() {
       setLoading(true);
     }
     try {
+      const retentionFloorIso = new Date(Date.now() - (7 * 24 * 60 * 60 * 1000)).toISOString();
       const { data, error } = await supabase
         .from('patient_request_recipients')
         .select(`
@@ -152,7 +155,7 @@ export default function PharmacistPatientRequestsPage() {
           responded_at,
           request_id,
           updated_at,
-          request:patient_requests!patient_request_recipients_request_id_fkey (
+          request:patient_requests!patient_request_recipients_request_id_fkey!inner (
             id,
             medicine_query,
             dosage,
@@ -160,11 +163,16 @@ export default function PharmacistPatientRequestsPage() {
             urgency,
             status,
             expires_at,
+            deleted_at,
             created_at,
+            accepted_at,
             selected_pharmacy_id
           )
         `)
         .eq('pharmacy_id', pharmacyData.id)
+        .is('patient_requests.deleted_at', null)
+        .gte('patient_requests.expires_at', retentionFloorIso)
+        .or('status.neq.cancelled,accepted_at.not.is.null', { foreignTable: 'patient_requests' })
         .order('updated_at', { ascending: false });
 
       if (error) throw error;
@@ -197,6 +205,12 @@ export default function PharmacistPatientRequestsPage() {
         console.log('[PharmacistPatientRequests] sample row', sample);
       }
       const filtered = (data || []).filter((item) => {
+        if (!item?.request) return false;
+        const requestStatus = item?.request?.status ?? null;
+        const acceptedAt = item?.request?.accepted_at ?? null;
+        if (requestStatus === STATUS_KEYS.cancelled && !acceptedAt) {
+          return false;
+        }
         const selectedId = item?.request?.selected_pharmacy_id ?? null;
         return !selectedId || selectedId === pharmacyData.id;
       });
@@ -644,6 +658,7 @@ export default function PharmacistPatientRequestsPage() {
                   const canExecute = statusInfo.key === STATUS_KEYS.accepted
                     && selectedByPatient
                     && request?.status === STATUS_KEYS.accepted;
+                  const showExecuteDisclaimer = canExecute && executingId !== request?.id;
                   const canViewPatientDetails = item?.status === 'accepted'
                     && request?.selected_pharmacy_id === pharmacy?.id;
                   const patientDetails = canViewPatientDetails
@@ -806,7 +821,7 @@ export default function PharmacistPatientRequestsPage() {
                           </div>
                         )}
                         {canExecute && (
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <Button
                               size="sm"
                               className="rounded-full bg-pharma-teal hover:bg-pharma-teal/90 gap-1"
@@ -818,6 +833,21 @@ export default function PharmacistPatientRequestsPage() {
                                 ? (language === 'el' ? '\u0395\u03ba\u03c4\u03ad\u03bb\u03b5\u03c3\u03b7...' : 'Executing...')
                                 : t('markExecuted')}
                             </Button>
+                            {showExecuteDisclaimer && (
+                              <div className="inline-flex min-w-0 max-w-[34ch] items-start gap-1 text-xs text-pharma-slate-grey leading-tight">
+                                <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-pharma-slate-grey/80" />
+                                <p
+                                  style={{
+                                    display: '-webkit-box',
+                                    WebkitLineClamp: 2,
+                                    WebkitBoxOrient: 'vertical',
+                                    overflow: 'hidden'
+                                  }}
+                                >
+                                  {t('markExecutedDisclaimer')}
+                                </p>
+                              </div>
+                            )}
                           </div>
                         )}
                       </CardContent>

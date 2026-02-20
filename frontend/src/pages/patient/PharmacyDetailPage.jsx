@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useSeniorMode } from '../../contexts/SeniorModeContext';
 import { supabase } from '../../lib/supabase';
+import EntityAvatar from '../../components/common/EntityAvatar';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { OnCallBadge, VerifiedBadge } from '../../components/ui/status-badge';
@@ -107,6 +108,37 @@ const getFormattedHoursRows = (hoursValue, language) => {
   });
 };
 
+const SHOW_CATALOG_PRODUCTS_CARD = false;
+
+const normalizeAddressPart = (value) => {
+  if (value === null || value === undefined) return '';
+  const text = String(value).trim();
+  return text.length > 0 ? text : '';
+};
+
+const buildAddressLine = (pharmacy) => {
+  if (!pharmacy) return '';
+
+  const baseAddress = normalizeAddressPart(pharmacy.address_text || pharmacy.address);
+  const cityOrRegion = normalizeAddressPart(pharmacy.city || pharmacy.region);
+  const country = normalizeAddressPart(pharmacy.country);
+
+  const parts = baseAddress
+    ? baseAddress.split(',').map((part) => part.trim()).filter(Boolean)
+    : [];
+  const existing = new Set(parts.map((part) => part.toLocaleLowerCase()));
+
+  if (cityOrRegion && !existing.has(cityOrRegion.toLocaleLowerCase())) {
+    parts.push(cityOrRegion);
+  }
+
+  if (country && !existing.has(country.toLocaleLowerCase())) {
+    parts.push(country);
+  }
+
+  return parts.join(', ');
+};
+
 export default function PharmacyDetailPage() {
   const { id } = useParams();
   const { user, loading: authLoading } = useAuth();
@@ -122,6 +154,10 @@ export default function PharmacyDetailPage() {
   const formattedHoursRows = useMemo(
     () => getFormattedHoursRows(pharmacy?.hours, language),
     [pharmacy?.hours, language]
+  );
+  const pharmacyAddressLine = useMemo(
+    () => buildAddressLine(pharmacy),
+    [pharmacy]
   );
 
   useEffect(() => {
@@ -327,9 +363,14 @@ export default function PharmacyDetailPage() {
         <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale overflow-hidden page-enter">
           <CardContent className="p-6">
             <div className="flex items-start gap-4 mb-6">
-              <div className="w-20 h-20 rounded-2xl bg-pharma-ice-blue flex items-center justify-center flex-shrink-0">
-                <Pill className="w-10 h-10 text-pharma-teal" />
-              </div>
+              <EntityAvatar
+                avatarPath={pharmacy?.avatar_path}
+                alt={pharmacy?.name || (language === 'el' ? 'Λογότυπο φαρμακείου' : 'Pharmacy logo')}
+                className="w-20 h-20 rounded-2xl bg-pharma-ice-blue flex items-center justify-center flex-shrink-0 overflow-hidden"
+                imageClassName="h-full w-full object-cover"
+                fallback={<Pill className="w-10 h-10 text-pharma-teal" />}
+                dataTestId="pharmacy-detail-avatar"
+              />
               <div>
                 <h2 className="font-heading font-bold text-pharma-dark-slate text-2xl mb-1">
                   {pharmacy.name}
@@ -346,7 +387,7 @@ export default function PharmacyDetailPage() {
               <div className="flex items-start gap-3">
                 <MapPin className="w-5 h-5 text-pharma-teal mt-0.5" />
                 <div>
-                  <p className="text-pharma-charcoal">{pharmacy.address}</p>
+                  <p className="text-pharma-charcoal">{pharmacyAddressLine || pharmacy.address || '-'}</p>
                   <button 
                     onClick={openInMaps}
                     className="text-sm text-pharma-teal hover:underline flex items-center gap-1 mt-1"
@@ -432,7 +473,7 @@ export default function PharmacyDetailPage() {
         )}
 
         {/* Catalog products associated with this pharmacy */}
-        {catalogProducts.length > 0 && (
+        {SHOW_CATALOG_PRODUCTS_CARD && catalogProducts.length > 0 && (
           <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale page-enter" style={{ animationDelay: '0.2s' }}>
             <CardHeader className="pb-3">
               <CardTitle className="font-heading text-lg text-pharma-dark-slate">

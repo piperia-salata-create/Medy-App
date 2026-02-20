@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { supabase } from '../../lib/supabase';
+import EntityAvatar from '../../components/common/EntityAvatar';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { StatusBadge, OnCallBadge } from '../../components/ui/status-badge';
@@ -104,14 +105,7 @@ export default function FavoritesPage() {
         .select(`
           id,
           pharmacy_id,
-          pharmacies (
-            id,
-            name,
-            address,
-            phone,
-            hours,
-            is_on_call
-          )
+          pharmacies (*)
         `)
         .eq('user_id', userId);
 
@@ -202,9 +196,14 @@ export default function FavoritesPage() {
               >
                 <CardContent className="p-5">
                   <div className="flex items-start gap-4">
-                    <div className="w-14 h-14 rounded-xl bg-pharma-ice-blue flex items-center justify-center flex-shrink-0">
-                      <Pill className="w-7 h-7 text-pharma-teal" />
-                    </div>
+                    <EntityAvatar
+                      avatarPath={favorite?.pharmacies?.avatar_path}
+                      alt={favorite?.pharmacies?.name || (language === 'el' ? 'Λογότυπο φαρμακείου' : 'Pharmacy logo')}
+                      className="w-14 h-14 rounded-xl bg-pharma-ice-blue flex items-center justify-center flex-shrink-0 overflow-hidden"
+                      imageClassName="h-full w-full object-cover"
+                      fallback={<Pill className="w-7 h-7 text-pharma-teal" />}
+                      dataTestId={`favorite-avatar-${favorite.id}`}
+                    />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2">
                         <div>

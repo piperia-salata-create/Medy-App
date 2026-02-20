@@ -2,7 +2,13 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { supabase, supabaseAnonKey, supabaseUrl } from '../lib/supabase';
 
 const DEBUG_AUTH = false;
-const PROFILE_SELECT_FIELDS = 'id, role, full_name, honorific, pharmacy_name, email, radius_km';
+const PROFILE_SELECT_FIELDS_BASE = 'id, role, full_name, honorific, pharmacy_name, email, radius_km';
+const PROFILE_SELECT_FIELDS_WITH_AVATAR = `${PROFILE_SELECT_FIELDS_BASE}, avatar_path`;
+
+const isMissingAvatarPathColumnError = (error) => {
+  return error?.code === '42703'
+    || String(error?.message || '').toLowerCase().includes('avatar_path');
+};
 
 const AuthContext = createContext();
 const AuthSessionContext = createContext();
@@ -295,14 +301,24 @@ export const AuthProvider = ({ children }) => {
     }
     try {
       const selectDiagEnd = startDiagnostics('fetchProfile:select', { requestId, source, bootstrapId, runId }, isActiveRequest);
-      const { data, error, status, statusText } = await timed(
+      let { data, error, status, statusText } = await timed(
         'auth:fetchProfile:select',
         supabase
           .from('profiles')
-          .select(PROFILE_SELECT_FIELDS)
+          .select(PROFILE_SELECT_FIELDS_WITH_AVATAR)
           .eq('id', userId)
           .maybeSingle()
       );
+      if (error && isMissingAvatarPathColumnError(error)) {
+        ({ data, error, status, statusText } = await timed(
+          'auth:fetchProfile:select:fallbackWithoutAvatar',
+          supabase
+            .from('profiles')
+            .select(PROFILE_SELECT_FIELDS_BASE)
+            .eq('id', userId)
+            .maybeSingle()
+        ));
+      }
       selectDiagEnd({
         ok: !error,
         status,

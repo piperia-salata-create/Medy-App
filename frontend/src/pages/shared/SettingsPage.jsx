@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useSeniorMode } from '../../contexts/SeniorModeContext';
+import EntityAvatar from '../../components/common/EntityAvatar';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Switch } from '../../components/ui/switch';
@@ -55,9 +56,14 @@ export default function SettingsPage() {
             <CardContent className="p-0">
               <div className="p-5 border-b border-pharma-grey-pale/50">
                 <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 rounded-xl bg-pharma-teal/10 flex items-center justify-center">
-                    <User className="w-7 h-7 text-pharma-teal" />
-                  </div>
+                  <EntityAvatar
+                    avatarPath={profile?.avatar_path}
+                    alt={language === 'el' ? 'Εικόνα προφίλ' : 'Profile avatar'}
+                    className="w-14 h-14 rounded-xl bg-pharma-teal/10 flex items-center justify-center overflow-hidden"
+                    imageClassName="h-full w-full object-cover"
+                    fallback={<User className="w-7 h-7 text-pharma-teal" />}
+                    dataTestId="settings-avatar-preview"
+                  />
                   <div>
                     <h2 className="font-heading font-semibold text-pharma-dark-slate">
                       {profile?.full_name || user?.email}

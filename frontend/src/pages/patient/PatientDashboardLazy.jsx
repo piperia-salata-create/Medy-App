@@ -10,6 +10,7 @@ import { Input } from '../../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
+import EntityAvatar from '../../components/common/EntityAvatar';
 import { OnCallBadge } from '../../components/ui/status-badge';
 import { SkeletonPharmacyCard, SkeletonList, SkeletonCard } from '../../components/ui/skeleton-loaders';
 import { EmptyState } from '../../components/ui/empty-states';
@@ -106,6 +107,35 @@ const areNearbyPharmaciesEqual = (prevList = [], nextList = []) => {
     if (Math.abs(prevDistance - nextDistance) > 0.001) return false;
   }
   return true;
+};
+
+const normalizeAddressPart = (value) => {
+  if (value === null || value === undefined) return '';
+  const text = String(value).trim();
+  return text.length > 0 ? text : '';
+};
+
+const formatAddressWithLocation = (pharmacy) => {
+  if (!pharmacy) return '';
+
+  const baseAddress = normalizeAddressPart(pharmacy.address_text || pharmacy.address);
+  const cityOrRegion = normalizeAddressPart(pharmacy.city || pharmacy.region);
+  const country = normalizeAddressPart(pharmacy.country);
+
+  const parts = baseAddress
+    ? baseAddress.split(',').map((part) => part.trim()).filter(Boolean)
+    : [];
+  const existing = new Set(parts.map((part) => part.toLocaleLowerCase()));
+
+  if (cityOrRegion && !existing.has(cityOrRegion.toLocaleLowerCase())) {
+    parts.push(cityOrRegion);
+  }
+
+  if (country && !existing.has(country.toLocaleLowerCase())) {
+    parts.push(country);
+  }
+
+  return parts.join(', ');
 };
 
 const areRecipientsEqual = (prevList = [], nextList = []) => {
@@ -359,27 +389,18 @@ export default function PatientDashboardLazy() {
 
     const isInitialLoad = !requestsLoadedRef.current;
     const useInitialLoading = isInitialLoad && options?.silent !== true;
+    const retentionFloorIso = new Date(Date.now() - (7 * 24 * 60 * 60 * 1000)).toISOString();
     let didChange = false;
     if (useInitialLoading) {
       setRequestsLoading(true);
     }
     try {
-      const nowIso = new Date().toISOString();
-      const { error: expireError } = await supabase
-        .from('patient_requests')
-        .update({ status: 'expired', updated_at: nowIso })
-        .eq('status', 'pending')
-        .not('expires_at', 'is', null)
-        .lt('expires_at', nowIso);
-      if (expireError) {
-        console.error('Error expiring patient requests:', expireError);
-      }
-
-      // Single query - no .or(), no expires_at filtering
       const { data, error } = await supabase
         .from('patient_requests')
         .select('*')
         .eq('patient_id', userId)
+        .is('deleted_at', null)
+        .gte('expires_at', retentionFloorIso)
         .in('status', ['pending', 'accepted', 'cancelled', 'rejected', 'expired', 'executed', 'closed'])
         .order('created_at', { ascending: false });
 
@@ -1192,6 +1213,7 @@ export default function PatientDashboardLazy() {
                           ...pharmacy
                         };
                         const hoursLabel = formatPharmacyHours(fullPharmacy.hours);
+                        const addressLine = formatAddressWithLocation(fullPharmacy) || pharmacy.address || '-';
                         const distanceKm = pharmacy.distance_km ?? pharmacy.distance;
                         const onDutyActive = isOnDutyPresenceActive(fullPharmacy);
                         return (
@@ -1202,9 +1224,14 @@ export default function PatientDashboardLazy() {
                         >
                           <CardContent className="p-4">
                             <div className="flex items-start gap-3">
-                              <div className="w-12 h-12 rounded-xl bg-pharma-teal/10 flex items-center justify-center flex-shrink-0">
-                                <Pill className="w-6 h-6 text-pharma-teal" />
-                              </div>
+                              <EntityAvatar
+                                avatarPath={fullPharmacy?.avatar_path}
+                                alt={pharmacy?.name || (language === 'el' ? 'Λογότυπο φαρμακείου' : 'Pharmacy logo')}
+                                className="w-12 h-12 rounded-xl bg-pharma-teal/10 flex items-center justify-center flex-shrink-0 overflow-hidden"
+                                imageClassName="h-full w-full object-cover"
+                                fallback={<Pill className="w-6 h-6 text-pharma-teal" />}
+                                dataTestId={`nearby-pharmacy-avatar-${pharmacy.id}`}
+                              />
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-start justify-between gap-2 min-w-0">
                                   <div className="min-w-0">
@@ -1214,7 +1241,7 @@ export default function PatientDashboardLazy() {
                                     <div className="flex items-start gap-1.5 text-xs text-pharma-slate-grey mt-0.5 min-w-0">
                                       <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
                                       <span className="line-clamp-2 break-words overflow-hidden">
-                                        {pharmacy.address}
+                                        {addressLine}
                                       </span>
                                     </div>
                                   </div>

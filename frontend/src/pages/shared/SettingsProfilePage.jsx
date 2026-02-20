@@ -3,15 +3,28 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { supabase } from '../../lib/supabase';
-import { geocodeAddress, reverseGeocode, extractCityRegion } from '../../lib/geocoding/googleGeocoding';
+import { geocodeAddress, reverseGeocode } from '../../lib/geocoding/googleGeocoding';
+import EntityAvatar from '../../components/common/EntityAvatar';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
 import { Textarea } from '../../components/ui/textarea';
 import { Switch } from '../../components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
+import {
+  AVATAR_SIGNED_URL_TTL_SECONDS,
+  appendAvatarCacheBust,
+  buildPharmacyAvatarPath,
+  buildUserAvatarPath,
+  getSignedAvatarUrl,
+  invalidateAvatarSignedUrl,
+  processAvatarFile,
+  removeAvatarObject,
+  uploadAvatarBlob,
+  validateAvatarFile
+} from '../../lib/avatarStorage';
 import { toast } from 'sonner';
-import { ArrowLeft, Mail, User, Building2, Shield, Clock, ChevronDown, MapPin } from 'lucide-react';
+import { ArrowLeft, Mail, User, Building2, Shield, Clock, ChevronDown, MapPin, Pill, Upload, Trash2 } from 'lucide-react';
 
 const MapPinModal = lazy(() => import('../../components/MapPinModal'));
 const preloadMapPinModal = () => import('../../components/MapPinModal');
@@ -132,6 +145,104 @@ const normalizeOptionalText = (value) => {
   return trimmed ? trimmed : null;
 };
 
+const isMissingAvatarPathColumnError = (error) => {
+  return error?.code === '42703'
+    || String(error?.message || '').toLowerCase().includes('avatar_path');
+};
+
+const createEmptyLocationMeta = () => ({
+  city: null,
+  region: null,
+  country: null,
+  postal_code: null,
+  area_line: null
+});
+
+const composeAreaLine = (details = {}) => {
+  const rawParts = [details.city, details.region, details.country]
+    .map((value) => normalizeOptionalText(value))
+    .filter(Boolean);
+
+  if (rawParts.length === 0) return null;
+
+  const uniqueParts = [];
+  rawParts.forEach((part) => {
+    if (!uniqueParts.some((item) => item.toLowerCase() === part.toLowerCase())) {
+      uniqueParts.push(part);
+    }
+  });
+
+  return uniqueParts.length > 0 ? uniqueParts.join(', ') : null;
+};
+
+const appendAreaLineToAddressText = (addressText, areaLine) => {
+  const normalizedAddress = normalizeOptionalText(addressText);
+  const normalizedArea = normalizeOptionalText(areaLine);
+  if (!normalizedAddress) return normalizedArea;
+  if (!normalizedArea) return normalizedAddress;
+  if (normalizedAddress.toLowerCase().includes(normalizedArea.toLowerCase())) {
+    return normalizedAddress;
+  }
+  return `${normalizedAddress}, ${normalizedArea}`;
+};
+
+const extractAreaLineFromAddressText = (addressText, baseAddress) => {
+  const normalizedAddressText = normalizeOptionalText(addressText);
+  if (!normalizedAddressText) return null;
+
+  const normalizedBaseAddress = normalizeOptionalText(baseAddress);
+  if (normalizedBaseAddress) {
+    const haystack = normalizedAddressText.toLowerCase();
+    const needle = normalizedBaseAddress.toLowerCase();
+    if (haystack.startsWith(needle)) {
+      const suffix = normalizedAddressText.slice(normalizedBaseAddress.length).replace(/^[,\s-]+/, '').trim();
+      return suffix || null;
+    }
+  }
+
+  return null;
+};
+
+const extractLocationDetails = (payload, fallback = {}) => {
+  const components = payload?.address_components || {};
+  const city = normalizeOptionalText(
+    components.locality
+    || components.postal_town
+    || components.city
+    || payload?.city
+    || components.administrative_area_level_3
+    || components.administrative_area_level_2
+    || fallback.city
+  );
+  const region = normalizeOptionalText(
+    components.administrative_area_level_1
+    || components.region
+    || payload?.region
+    || components.administrative_area_level_2
+    || fallback.region
+  );
+  const country = normalizeOptionalText(
+    components.country
+    || payload?.country
+    || fallback.country
+  );
+  const postalCode = normalizeOptionalText(
+    components.postal_code
+    || payload?.postal_code
+    || fallback.postal_code
+  );
+
+  const areaLine = composeAreaLine({ city, region, country }) || normalizeOptionalText(fallback.area_line);
+
+  return {
+    city: city || null,
+    region: region || null,
+    country: country || null,
+    postal_code: postalCode || null,
+    area_line: areaLine || null
+  };
+};
+
 export default function SettingsProfilePage() {
   const { user, profile, loading: authLoading, isPharmacist, fetchProfile } = useAuth();
   const { t, language } = useLanguage();
@@ -142,9 +253,15 @@ export default function SettingsProfilePage() {
 
   const [loading, setLoading] = useState(() => !profile);
   const [saving, setSaving] = useState(false);
+  const [avatarPathColumnMissing, setAvatarPathColumnMissing] = useState(false);
   const [form, setForm] = useState(() => ({ ...initialProfileForm }));
   const [originalProfile, setOriginalProfile] = useState(() => ({ ...initialProfileForm }));
   const [profileData, setProfileData] = useState(() => profile || null);
+  const [userAvatarPath, setUserAvatarPath] = useState(() => normalizeOptionalText(profile?.avatar_path));
+  const [userAvatarPreviewSrc, setUserAvatarPreviewSrc] = useState('');
+  const [userAvatarVersion, setUserAvatarVersion] = useState(0);
+  const [uploadingUserAvatar, setUploadingUserAvatar] = useState(false);
+  const [removingUserAvatar, setRemovingUserAvatar] = useState(false);
   const [formError, setFormError] = useState('');
   const [radiusError, setRadiusError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
@@ -155,10 +272,15 @@ export default function SettingsProfilePage() {
   const [pharmacyFormError, setPharmacyFormError] = useState('');
   const [existingPharmacyId, setExistingPharmacyId] = useState(null);
   const [originalPharmacyId, setOriginalPharmacyId] = useState(null);
+  const [pharmacyAvatarPath, setPharmacyAvatarPath] = useState(null);
+  const [pharmacyAvatarPreviewSrc, setPharmacyAvatarPreviewSrc] = useState('');
+  const [pharmacyAvatarVersion, setPharmacyAvatarVersion] = useState(0);
+  const [uploadingPharmacyAvatar, setUploadingPharmacyAvatar] = useState(false);
+  const [removingPharmacyAvatar, setRemovingPharmacyAvatar] = useState(false);
   const [existingCoords, setExistingCoords] = useState({ latitude: null, longitude: null });
   const [originalCoords, setOriginalCoords] = useState({ latitude: null, longitude: null });
-  const [existingLocationMeta, setExistingLocationMeta] = useState({ city: null, region: null });
-  const [originalLocationMeta, setOriginalLocationMeta] = useState({ city: null, region: null });
+  const [existingLocationMeta, setExistingLocationMeta] = useState(createEmptyLocationMeta());
+  const [originalLocationMeta, setOriginalLocationMeta] = useState(createEmptyLocationMeta());
   const [pendingCoords, setPendingCoords] = useState(null);
   const [hoursSchedule, setHoursSchedule] = useState(createEmptySchedule());
   const [originalHoursSchedule, setOriginalHoursSchedule] = useState(createEmptySchedule());
@@ -177,6 +299,10 @@ export default function SettingsProfilePage() {
   const suppressGeocodeRef = useRef(false);
   const lastGeocodeAtRef = useRef(0);
   const mapPinRequestIdRef = useRef(0);
+  const userAvatarInputRef = useRef(null);
+  const pharmacyAvatarInputRef = useRef(null);
+  const userAvatarObjectUrlRef = useRef(null);
+  const pharmacyAvatarObjectUrlRef = useRef(null);
   const profileRef = useRef(profile);
   const profileLoadedRef = useRef(Boolean(profile));
   const pharmacyLoadedRef = useRef(false);
@@ -210,6 +336,18 @@ export default function SettingsProfilePage() {
     if (profileData?.role === 'patient' || profileRole === 'patient') return t('patient');
     return '-';
   }, [profileData?.role, profileRole, t]);
+  const avatarUploadLabel = language === 'el' ? 'Μεταφόρτωση' : 'Upload';
+  const avatarRemoveLabel = language === 'el' ? 'Αφαίρεση' : 'Remove';
+  const avatarUploadingLabel = language === 'el' ? 'Μεταφόρτωση...' : 'Uploading...';
+  const avatarMigrationRequiredLabel = language === 'el'
+    ? 'Η λειτουργία εικόνας απαιτεί ενημέρωση βάσης (avatar_path).'
+    : 'Avatar feature requires database update (avatar_path).';
+  const topIdentifierAvatarPath = isPharmacistRole ? pharmacyAvatarPath : userAvatarPath;
+  const topIdentifierPreviewSrc = isPharmacistRole ? pharmacyAvatarPreviewSrc : userAvatarPreviewSrc;
+  const topIdentifierVersion = isPharmacistRole ? pharmacyAvatarVersion : userAvatarVersion;
+  const topIdentifierAlt = isPharmacistRole
+    ? (language === 'el' ? 'Λογότυπο φαρμακείου' : 'Pharmacy logo')
+    : (language === 'el' ? 'Εικόνα προφίλ' : 'Profile avatar');
   const todayKey = useMemo(() => jsDayOrder[new Date().getDay()] || null, []);
   const mapPinInitialPosition = useMemo(() => {
     if (pendingCoords?.latitude != null && pendingCoords?.longitude != null) {
@@ -220,6 +358,49 @@ export default function SettingsProfilePage() {
     }
     return null;
   }, [pendingCoords, existingCoords]);
+  const clearUserAvatarObjectUrl = useCallback(() => {
+    if (userAvatarObjectUrlRef.current) {
+      URL.revokeObjectURL(userAvatarObjectUrlRef.current);
+      userAvatarObjectUrlRef.current = null;
+    }
+  }, []);
+  const clearPharmacyAvatarObjectUrl = useCallback(() => {
+    if (pharmacyAvatarObjectUrlRef.current) {
+      URL.revokeObjectURL(pharmacyAvatarObjectUrlRef.current);
+      pharmacyAvatarObjectUrlRef.current = null;
+    }
+  }, []);
+  useEffect(() => () => {
+    clearUserAvatarObjectUrl();
+    clearPharmacyAvatarObjectUrl();
+  }, [clearPharmacyAvatarObjectUrl, clearUserAvatarObjectUrl]);
+  const getAvatarValidationError = useCallback((code) => {
+    if (code === 'invalid_type') {
+      return language === 'el'
+        ? 'Επιτρέπονται μόνο PNG, JPG ή WEBP αρχεία.'
+        : 'Only PNG, JPG, or WEBP files are allowed.';
+    }
+    if (code === 'file_too_large') {
+      return language === 'el'
+        ? 'Το αρχείο πρέπει να είναι έως 2MB.'
+        : 'File size must be up to 2MB.';
+    }
+    return language === 'el'
+      ? 'Μη έγκυρο αρχείο εικόνας.'
+      : 'Invalid image file.';
+  }, [language]);
+  const pinAreaLine = useMemo(() => {
+    if (pendingCoords?.source === 'map') {
+      return normalizeOptionalText(pendingCoords.area_line);
+    }
+
+    const addressEditedManually = pharmacyForm.address.trim() !== pharmacyOriginal.address.trim();
+    if (!pendingCoords && !addressEditedManually) {
+      return normalizeOptionalText(existingLocationMeta.area_line);
+    }
+
+    return null;
+  }, [pendingCoords, pharmacyForm.address, pharmacyOriginal.address, existingLocationMeta.area_line]);
   const getDaySummary = useCallback((entry) => {
     if (!entry || entry.closed) {
       return language === 'el' ? 'Κλειστό' : 'Closed';
@@ -233,6 +414,8 @@ export default function SettingsProfilePage() {
   const applyProfile = useCallback((data) => {
     if (!data) return;
     setProfileData(data);
+    setUserAvatarPath(normalizeOptionalText(data?.avatar_path));
+    setUserAvatarVersion(Date.now());
     const nextForm = buildProfileForm(data, userEmail);
     setForm(nextForm);
     setOriginalProfile(nextForm);
@@ -262,11 +445,18 @@ export default function SettingsProfilePage() {
       setFormError('');
       setSuccessMessage('');
       try {
-        const { data, error } = await supabase
+        let { data, error } = await supabase
           .from('profiles')
-          .select('id,email,role,full_name,pharmacy_name,language,radius_km')
+          .select('id,email,role,full_name,pharmacy_name,language,radius_km,avatar_path')
           .eq('id', userId)
           .single();
+        if (error && isMissingAvatarPathColumnError(error)) {
+          ({ data, error } = await supabase
+            .from('profiles')
+            .select('id,email,role,full_name,pharmacy_name,language,radius_km')
+            .eq('id', userId)
+            .single());
+        }
 
         if (error) {
           if (error.code === 'PGRST116') {
@@ -321,8 +511,23 @@ export default function SettingsProfilePage() {
         if (error) throw error;
 
         if (data) {
+          const locationMeta = extractLocationDetails(
+            {
+              address_components: {
+                city: data.city ?? null,
+                region: data.region ?? null
+              }
+            },
+            {
+              city: data.city ?? null,
+              region: data.region ?? null,
+              area_line: extractAreaLineFromAddressText(data.address_text, data.address)
+            }
+          );
           setExistingPharmacyId(data.id);
           setOriginalPharmacyId(data.id);
+          setPharmacyAvatarPath(normalizeOptionalText(data.avatar_path));
+          setPharmacyAvatarVersion(Date.now());
           setExistingCoords({
             latitude: data.latitude ?? null,
             longitude: data.longitude ?? null
@@ -331,14 +536,8 @@ export default function SettingsProfilePage() {
             latitude: data.latitude ?? null,
             longitude: data.longitude ?? null
           });
-          setExistingLocationMeta({
-            city: data.city ?? null,
-            region: data.region ?? null
-          });
-          setOriginalLocationMeta({
-            city: data.city ?? null,
-            region: data.region ?? null
-          });
+          setExistingLocationMeta(locationMeta);
+          setOriginalLocationMeta(locationMeta);
           setPendingCoords(null);
           setPharmacyForm({
             name: data.name || '',
@@ -362,10 +561,12 @@ export default function SettingsProfilePage() {
         } else {
           setExistingPharmacyId(null);
           setOriginalPharmacyId(null);
+          setPharmacyAvatarPath(null);
+          setPharmacyAvatarVersion(Date.now());
           setExistingCoords({ latitude: null, longitude: null });
           setOriginalCoords({ latitude: null, longitude: null });
-          setExistingLocationMeta({ city: null, region: null });
-          setOriginalLocationMeta({ city: null, region: null });
+          setExistingLocationMeta(createEmptyLocationMeta());
+          setOriginalLocationMeta(createEmptyLocationMeta());
           setPendingCoords(null);
           setPharmacyForm({ ...emptyPharmacyForm });
           setPharmacyOriginal({ ...emptyPharmacyForm });
@@ -407,6 +608,262 @@ export default function SettingsProfilePage() {
       [field]: value
     }));
   };
+
+  const openUserAvatarPicker = useCallback(() => {
+    userAvatarInputRef.current?.click();
+  }, []);
+
+  const openPharmacyAvatarPicker = useCallback(() => {
+    pharmacyAvatarInputRef.current?.click();
+  }, []);
+
+  const handleUserAvatarFileSelected = useCallback(async (event) => {
+    const file = event.target.files?.[0] || null;
+    event.target.value = '';
+    if (!file || !userId) return;
+
+    const validation = validateAvatarFile(file);
+    if (!validation.ok) {
+      toast.error(getAvatarValidationError(validation.code));
+      return;
+    }
+
+    clearUserAvatarObjectUrl();
+    const previewUrl = URL.createObjectURL(file);
+    userAvatarObjectUrlRef.current = previewUrl;
+    setUserAvatarPreviewSrc(previewUrl);
+    setUploadingUserAvatar(true);
+
+    try {
+      const processed = await processAvatarFile(file);
+      const path = buildUserAvatarPath(userId);
+      if (!path) {
+        throw new Error(language === 'el' ? 'Μη έγκυρο μονοπάτι εικόνας.' : 'Invalid avatar path.');
+      }
+
+      const { error: uploadError } = await uploadAvatarBlob(path, processed.blob);
+      if (uploadError) throw uploadError;
+
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({
+          avatar_path: path,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', userId);
+      if (updateError) throw updateError;
+
+      invalidateAvatarSignedUrl(path);
+      const signedUrl = await getSignedAvatarUrl(path, {
+        expiresIn: AVATAR_SIGNED_URL_TTL_SECONDS,
+        forceRefresh: true
+      });
+
+      clearUserAvatarObjectUrl();
+      setUserAvatarPreviewSrc(appendAvatarCacheBust(signedUrl || '', Date.now()));
+      setUserAvatarPath(path);
+      setUserAvatarVersion(Date.now());
+      setProfileData((prev) => ({
+        ...(prev || {}),
+        avatar_path: path
+      }));
+      await fetchProfile(userId, 'settingsProfile:userAvatarUpload');
+      toast.success(language === 'el' ? 'Η εικόνα προφίλ ενημερώθηκε.' : 'Profile photo updated.');
+    } catch (error) {
+      if (isMissingAvatarPathColumnError(error)) {
+        setAvatarPathColumnMissing(true);
+        toast.error(avatarMigrationRequiredLabel);
+        clearUserAvatarObjectUrl();
+        setUserAvatarPreviewSrc('');
+        return;
+      }
+      clearUserAvatarObjectUrl();
+      setUserAvatarPreviewSrc('');
+      toast.error(error?.message || (language === 'el' ? 'Αποτυχία μεταφόρτωσης εικόνας.' : 'Failed to upload avatar.'));
+    } finally {
+      setUploadingUserAvatar(false);
+    }
+  }, [
+    avatarMigrationRequiredLabel,
+    clearUserAvatarObjectUrl,
+    fetchProfile,
+    getAvatarValidationError,
+    language,
+    userId
+  ]);
+
+  const removeUserAvatar = useCallback(async () => {
+    if (!userId) return;
+    const currentPath = userAvatarPath || buildUserAvatarPath(userId);
+    if (!currentPath) return;
+
+    setRemovingUserAvatar(true);
+    try {
+      const { error: removeError } = await removeAvatarObject(currentPath);
+      if (removeError && !String(removeError.message || '').toLowerCase().includes('not found')) {
+        throw removeError;
+      }
+
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({
+          avatar_path: null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', userId);
+      if (profileError) throw profileError;
+
+      invalidateAvatarSignedUrl(currentPath);
+      clearUserAvatarObjectUrl();
+      setUserAvatarPreviewSrc('');
+      setUserAvatarPath(null);
+      setUserAvatarVersion(Date.now());
+      setProfileData((prev) => ({
+        ...(prev || {}),
+        avatar_path: null
+      }));
+      await fetchProfile(userId, 'settingsProfile:userAvatarRemove');
+      toast.success(language === 'el' ? 'Η εικόνα προφίλ αφαιρέθηκε.' : 'Profile photo removed.');
+    } catch (error) {
+      if (isMissingAvatarPathColumnError(error)) {
+        setAvatarPathColumnMissing(true);
+        toast.error(avatarMigrationRequiredLabel);
+        return;
+      }
+      toast.error(error?.message || (language === 'el' ? 'Αποτυχία αφαίρεσης εικόνας.' : 'Failed to remove avatar.'));
+    } finally {
+      setRemovingUserAvatar(false);
+    }
+  }, [avatarMigrationRequiredLabel, clearUserAvatarObjectUrl, fetchProfile, language, userAvatarPath, userId]);
+
+  const handlePharmacyAvatarFileSelected = useCallback(async (event) => {
+    const file = event.target.files?.[0] || null;
+    event.target.value = '';
+    if (!file || !existingPharmacyId || !userId) return;
+
+    const validation = validateAvatarFile(file);
+    if (!validation.ok) {
+      toast.error(getAvatarValidationError(validation.code));
+      return;
+    }
+
+    clearPharmacyAvatarObjectUrl();
+    const previewUrl = URL.createObjectURL(file);
+    pharmacyAvatarObjectUrlRef.current = previewUrl;
+    setPharmacyAvatarPreviewSrc(previewUrl);
+    setUploadingPharmacyAvatar(true);
+
+    try {
+      const processed = await processAvatarFile(file);
+      const preferredPath = buildPharmacyAvatarPath(existingPharmacyId);
+      const fallbackPath = buildUserAvatarPath(userId);
+      if (!preferredPath && !fallbackPath) {
+        throw new Error(language === 'el' ? 'Μη έγκυρο μονοπάτι λογοτύπου.' : 'Invalid logo path.');
+      }
+
+      const uploadTargets = [fallbackPath, preferredPath]
+        .filter(Boolean)
+        .filter((value, index, self) => self.indexOf(value) === index);
+
+      let path = uploadTargets[0] || null;
+      let uploadError = null;
+      for (let index = 0; index < uploadTargets.length; index += 1) {
+        const targetPath = uploadTargets[index];
+        const { error } = await uploadAvatarBlob(targetPath, processed.blob);
+        if (!error) {
+          path = targetPath;
+          uploadError = null;
+          break;
+        }
+
+        uploadError = error;
+        const errorMessage = String(error?.message || '').toLowerCase();
+        const statusCode = String(error?.statusCode || error?.status || '');
+        const isRlsDenied = errorMessage.includes('row-level security')
+          || errorMessage.includes('unauthorized')
+          || statusCode === '403';
+        const hasFallback = index + 1 < uploadTargets.length;
+        if (!isRlsDenied || !hasFallback) {
+          throw error;
+        }
+      }
+      if (uploadError || !path) throw uploadError || new Error('Failed to upload logo.');
+
+      const { error: updateError } = await supabase
+        .from('pharmacies')
+        .update({ avatar_path: path })
+        .eq('id', existingPharmacyId);
+      if (updateError) throw updateError;
+
+      invalidateAvatarSignedUrl(path);
+      const signedUrl = await getSignedAvatarUrl(path, {
+        expiresIn: AVATAR_SIGNED_URL_TTL_SECONDS,
+        forceRefresh: true
+      });
+
+      clearPharmacyAvatarObjectUrl();
+      setPharmacyAvatarPreviewSrc(appendAvatarCacheBust(signedUrl || '', Date.now()));
+      setPharmacyAvatarPath(path);
+      setPharmacyAvatarVersion(Date.now());
+      toast.success(language === 'el' ? 'Το λογότυπο φαρμακείου ενημερώθηκε.' : 'Pharmacy logo updated.');
+    } catch (error) {
+      if (isMissingAvatarPathColumnError(error)) {
+        setAvatarPathColumnMissing(true);
+        toast.error(avatarMigrationRequiredLabel);
+        clearPharmacyAvatarObjectUrl();
+        setPharmacyAvatarPreviewSrc('');
+        return;
+      }
+      clearPharmacyAvatarObjectUrl();
+      setPharmacyAvatarPreviewSrc('');
+      toast.error(error?.message || (language === 'el' ? 'Αποτυχία μεταφόρτωσης λογοτύπου.' : 'Failed to upload logo.'));
+    } finally {
+      setUploadingPharmacyAvatar(false);
+    }
+  }, [
+    avatarMigrationRequiredLabel,
+    clearPharmacyAvatarObjectUrl,
+    existingPharmacyId,
+    getAvatarValidationError,
+    language,
+    userId
+  ]);
+
+  const removePharmacyAvatar = useCallback(async () => {
+    if (!existingPharmacyId) return;
+    const currentPath = pharmacyAvatarPath || buildPharmacyAvatarPath(existingPharmacyId);
+    if (!currentPath) return;
+
+    setRemovingPharmacyAvatar(true);
+    try {
+      const { error: removeError } = await removeAvatarObject(currentPath);
+      if (removeError && !String(removeError.message || '').toLowerCase().includes('not found')) {
+        throw removeError;
+      }
+
+      const { error: updateError } = await supabase
+        .from('pharmacies')
+        .update({ avatar_path: null })
+        .eq('id', existingPharmacyId);
+      if (updateError) throw updateError;
+
+      invalidateAvatarSignedUrl(currentPath);
+      clearPharmacyAvatarObjectUrl();
+      setPharmacyAvatarPreviewSrc('');
+      setPharmacyAvatarPath(null);
+      setPharmacyAvatarVersion(Date.now());
+      toast.success(language === 'el' ? 'Το λογότυπο φαρμακείου αφαιρέθηκε.' : 'Pharmacy logo removed.');
+    } catch (error) {
+      if (isMissingAvatarPathColumnError(error)) {
+        setAvatarPathColumnMissing(true);
+        toast.error(avatarMigrationRequiredLabel);
+        return;
+      }
+      toast.error(error?.message || (language === 'el' ? 'Αποτυχία αφαίρεσης λογοτύπου.' : 'Failed to remove logo.'));
+    } finally {
+      setRemovingPharmacyAvatar(false);
+    }
+  }, [avatarMigrationRequiredLabel, clearPharmacyAvatarObjectUrl, existingPharmacyId, language, pharmacyAvatarPath]);
 
   const updateDay = (dayKey, updates) => {
     setHoursSchedule((prev) => ({
@@ -563,18 +1020,22 @@ export default function SettingsProfilePage() {
 
   const selectGeocodeResult = (result) => {
     if (!result) return;
-    const location = extractCityRegion(result);
+    const location = extractLocationDetails(result);
+    const addressText = result.address_text || result.displayName;
     suppressGeocodeRef.current = true;
     setPharmacyForm((prev) => ({
       ...prev,
-      address: result.address_text || result.displayName
+      address: addressText
     }));
     setPendingCoords({
       latitude: result.latitude,
       longitude: result.longitude,
-      address_text: result.address_text || result.displayName,
+      address_text: appendAreaLineToAddressText(addressText, location.area_line),
       city: location.city,
       region: location.region,
+      country: location.country,
+      postal_code: location.postal_code,
+      area_line: location.area_line,
       source: 'search'
     });
     setGeocodeResults([]);
@@ -602,7 +1063,7 @@ export default function SettingsProfilePage() {
       await waitForGeocodeRateLimit();
       const data = await reverseGeocode(latValue, lngValue);
       if (mapPinRequestIdRef.current !== requestId) return;
-      const location = extractCityRegion(data);
+      const location = extractLocationDetails(data);
 
       const addressText = data?.address_text || data?.formatted_address || data?.display_name || fallbackAddress;
       if (addressText) {
@@ -616,9 +1077,12 @@ export default function SettingsProfilePage() {
       setPendingCoords({
         latitude: latValue,
         longitude: lngValue,
-        address_text: addressText || null,
-        city: normalizeOptionalText(location?.city),
-        region: normalizeOptionalText(location?.region),
+        address_text: appendAreaLineToAddressText(addressText, location.area_line),
+        city: location.city,
+        region: location.region,
+        country: location.country,
+        postal_code: location.postal_code,
+        area_line: location.area_line,
         source: 'map'
       });
     } catch (err) {
@@ -633,6 +1097,9 @@ export default function SettingsProfilePage() {
         address_text: fallbackAddress || null,
         city: null,
         region: null,
+        country: null,
+        postal_code: null,
+        area_line: null,
         source: 'map'
       });
     } finally {
@@ -657,6 +1124,9 @@ export default function SettingsProfilePage() {
       address_text: pharmacyForm.address.trim() || null,
       city: existingLocationMeta.city ?? null,
       region: existingLocationMeta.region ?? null,
+      country: existingLocationMeta.country ?? null,
+      postal_code: existingLocationMeta.postal_code ?? null,
+      area_line: existingLocationMeta.area_line ?? null,
       source: 'map'
     });
 
@@ -672,25 +1142,15 @@ export default function SettingsProfilePage() {
 
   const resolveLocationMeta = useCallback(async (latitudeValue, longitudeValue, fallback = {}) => {
     if (latitudeValue == null || longitudeValue == null) {
-      return {
-        city: normalizeOptionalText(fallback?.city),
-        region: normalizeOptionalText(fallback?.region)
-      };
+      return extractLocationDetails(null, fallback);
     }
 
     try {
       const payload = await reverseGeocode(latitudeValue, longitudeValue);
-      const parsed = extractCityRegion(payload);
-      return {
-        city: normalizeOptionalText(parsed?.city) || normalizeOptionalText(fallback?.city),
-        region: normalizeOptionalText(parsed?.region) || normalizeOptionalText(fallback?.region)
-      };
+      return extractLocationDetails(payload, fallback);
     } catch (error) {
       console.warn('Failed to resolve city/region from coordinates:', error);
-      return {
-        city: normalizeOptionalText(fallback?.city),
-        region: normalizeOptionalText(fallback?.region)
-      };
+      return extractLocationDetails(null, fallback);
     }
   }, []);
 
@@ -878,6 +1338,9 @@ export default function SettingsProfilePage() {
               address_text: null,
               city: existingLocationMeta.city ?? null,
               region: existingLocationMeta.region ?? null,
+              country: existingLocationMeta.country ?? null,
+              postal_code: existingLocationMeta.postal_code ?? null,
+              area_line: existingLocationMeta.area_line ?? null,
               status: 'ok'
             };
             if (pendingCoords) {
@@ -887,6 +1350,9 @@ export default function SettingsProfilePage() {
                 address_text: pendingCoords.address_text ?? null,
                 city: pendingCoords.city ?? existingLocationMeta.city ?? null,
                 region: pendingCoords.region ?? existingLocationMeta.region ?? null,
+                country: pendingCoords.country ?? existingLocationMeta.country ?? null,
+                postal_code: pendingCoords.postal_code ?? existingLocationMeta.postal_code ?? null,
+                area_line: pendingCoords.area_line ?? existingLocationMeta.area_line ?? null,
                 status: 'ok'
               };
             } else if (!isEditMode || addressChanged) {
@@ -896,6 +1362,9 @@ export default function SettingsProfilePage() {
                 address_text: null,
                 city: isEditMode ? (existingLocationMeta.city ?? null) : null,
                 region: isEditMode ? (existingLocationMeta.region ?? null) : null,
+                country: null,
+                postal_code: null,
+                area_line: null,
                 status: 'manual'
               };
             }
@@ -903,9 +1372,12 @@ export default function SettingsProfilePage() {
             let latitudeValue = geocodeResult.latitude;
             let longitudeValue = geocodeResult.longitude;
             const geocodeFailed = geocodeResult.status !== 'ok';
-            const addressTextValue = (geocodeResult.address_text ?? pharmacyForm.address.trim()) || null;
+            const rawAddressTextValue = (geocodeResult.address_text ?? pharmacyForm.address.trim()) || null;
             let cityValue = isEditMode ? (existingLocationMeta.city ?? null) : null;
             let regionValue = isEditMode ? (existingLocationMeta.region ?? null) : null;
+            let countryValue = isEditMode ? (existingLocationMeta.country ?? null) : null;
+            let postalCodeValue = isEditMode ? (existingLocationMeta.postal_code ?? null) : null;
+            let areaLineValue = normalizeOptionalText(geocodeResult.area_line);
 
             if (geocodeFailed && isEditMode) {
               latitudeValue = existingCoords.latitude;
@@ -915,11 +1387,19 @@ export default function SettingsProfilePage() {
             if (latitudeValue != null && longitudeValue != null && (!isEditMode || coordsChanged)) {
               const locationMeta = await resolveLocationMeta(latitudeValue, longitudeValue, {
                 city: geocodeResult.city,
-                region: geocodeResult.region
+                region: geocodeResult.region,
+                country: geocodeResult.country,
+                postal_code: geocodeResult.postal_code,
+                area_line: geocodeResult.area_line
               });
               cityValue = locationMeta.city;
               regionValue = locationMeta.region;
+              countryValue = locationMeta.country;
+              postalCodeValue = locationMeta.postal_code;
+              areaLineValue = locationMeta.area_line || areaLineValue;
             }
+
+            const addressTextValue = appendAreaLineToAddressText(rawAddressTextValue, areaLineValue);
 
             if (DEBUG_MAP_PIN) {
               console.debug('[MapPin] save payload', {
@@ -1013,8 +1493,15 @@ export default function SettingsProfilePage() {
                   setOriginalPharmacyId(data?.id || null);
                   setExistingCoords({ latitude: latitudeValue ?? null, longitude: longitudeValue ?? null });
                   setOriginalCoords({ latitude: latitudeValue ?? null, longitude: longitudeValue ?? null });
-                  setExistingLocationMeta({ city: cityValue, region: regionValue });
-                  setOriginalLocationMeta({ city: cityValue, region: regionValue });
+                  const savedLocationMeta = {
+                    city: cityValue,
+                    region: regionValue,
+                    country: countryValue,
+                    postal_code: postalCodeValue,
+                    area_line: areaLineValue
+                  };
+                  setExistingLocationMeta(savedLocationMeta);
+                  setOriginalLocationMeta(savedLocationMeta);
                   setPendingCoords(null);
                   const nextPharmacy = {
                     name: pharmacyForm.name.trim(),
@@ -1038,8 +1525,15 @@ export default function SettingsProfilePage() {
             if (!pharmacyError && isEditMode && addressChanged) {
               setExistingCoords({ latitude: latitudeValue ?? null, longitude: longitudeValue ?? null });
               setOriginalCoords({ latitude: latitudeValue ?? null, longitude: longitudeValue ?? null });
-              setExistingLocationMeta({ city: cityValue, region: regionValue });
-              setOriginalLocationMeta({ city: cityValue, region: regionValue });
+              const savedLocationMeta = {
+                city: cityValue,
+                region: regionValue,
+                country: countryValue,
+                postal_code: postalCodeValue,
+                area_line: areaLineValue
+              };
+              setExistingLocationMeta(savedLocationMeta);
+              setOriginalLocationMeta(savedLocationMeta);
               setPendingCoords(null);
             }
 
@@ -1059,8 +1553,15 @@ export default function SettingsProfilePage() {
                 setPendingCoords(null);
               }
               if (addressChanged || coordsChanged) {
-                setExistingLocationMeta({ city: cityValue, region: regionValue });
-                setOriginalLocationMeta({ city: cityValue, region: regionValue });
+                const savedLocationMeta = {
+                  city: cityValue,
+                  region: regionValue,
+                  country: countryValue,
+                  postal_code: postalCodeValue,
+                  area_line: areaLineValue
+                };
+                setExistingLocationMeta(savedLocationMeta);
+                setOriginalLocationMeta(savedLocationMeta);
               }
               if (scheduleChanged) {
                 setOriginalHoursSchedule(cloneSchedule(hoursSchedule));
@@ -1120,6 +1621,10 @@ export default function SettingsProfilePage() {
     setGeocodeResults([]);
     setGeocodeError('');
     setGeocodeEmpty(false);
+    clearUserAvatarObjectUrl();
+    clearPharmacyAvatarObjectUrl();
+    setUserAvatarPreviewSrc('');
+    setPharmacyAvatarPreviewSrc('');
   };
 
   return (
@@ -1143,11 +1648,31 @@ export default function SettingsProfilePage() {
         <section className="page-enter">
           <Card className="gradient-card rounded-xl shadow-sm border border-pharma-grey-pale/50 overflow-hidden">
             <CardContent className="p-5">
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 rounded-xl bg-pharma-teal/10 flex items-center justify-center">
-                  <User className="w-7 h-7 text-pharma-teal" />
-                </div>
-                <div className="min-w-0">
+              {!isPharmacistRole && (
+                <input
+                  ref={userAvatarInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/jpg,image/webp"
+                  className="hidden"
+                  onChange={handleUserAvatarFileSelected}
+                  data-testid="profile-avatar-input"
+                />
+              )}
+              <div className="flex flex-wrap items-center gap-4">
+                <EntityAvatar
+                  avatarPath={topIdentifierAvatarPath}
+                  previewSrc={topIdentifierPreviewSrc}
+                  versionToken={topIdentifierVersion}
+                  signedUrlTtlSeconds={AVATAR_SIGNED_URL_TTL_SECONDS}
+                  alt={topIdentifierAlt}
+                  className="w-14 h-14 rounded-xl bg-pharma-teal/10 flex items-center justify-center overflow-hidden flex-shrink-0"
+                  imageClassName="h-full w-full object-cover"
+                  fallback={isPharmacistRole
+                    ? <Pill className="w-7 h-7 text-pharma-teal" />
+                    : <User className="w-7 h-7 text-pharma-teal" />}
+                  dataTestId="profile-avatar-preview"
+                />
+                <div className="min-w-0 flex-1">
                   <h2 className="font-heading font-semibold text-pharma-dark-slate truncate">
                     {profileData?.full_name || profile?.full_name || user?.email || t('profile')}
                   </h2>
@@ -1158,6 +1683,44 @@ export default function SettingsProfilePage() {
                     {roleLabel}
                   </p>
                 </div>
+                {!isPharmacistRole && (
+                  <div className="flex flex-col items-start gap-2 sm:items-end">
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="rounded-xl gap-1.5 h-9"
+                        onClick={openUserAvatarPicker}
+                        disabled={avatarPathColumnMissing || uploadingUserAvatar || removingUserAvatar || saving}
+                        data-testid="profile-avatar-upload-btn"
+                      >
+                        <Upload className="w-4 h-4" />
+                        {uploadingUserAvatar ? avatarUploadingLabel : avatarUploadLabel}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="rounded-xl gap-1.5 h-9 text-pharma-slate-grey hover:text-pharma-charcoal"
+                        onClick={removeUserAvatar}
+                        disabled={avatarPathColumnMissing || uploadingUserAvatar || removingUserAvatar || !userAvatarPath}
+                        data-testid="profile-avatar-remove-btn"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        {avatarRemoveLabel}
+                      </Button>
+                    </div>
+                    {(uploadingUserAvatar || removingUserAvatar) && (
+                      <p className="text-xs text-pharma-slate-grey">
+                        {uploadingUserAvatar
+                          ? (language === 'el' ? 'Ανέβασμα εικόνας...' : 'Uploading image...')
+                          : (language === 'el' ? 'Αφαίρεση εικόνας...' : 'Removing image...')}
+                      </p>
+                    )}
+                    {avatarPathColumnMissing && (
+                      <p className="text-xs text-pharma-coral">{avatarMigrationRequiredLabel}</p>
+                    )}
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -1275,6 +1838,78 @@ export default function SettingsProfilePage() {
                     </h3>
                   </div>
 
+                  <input
+                    ref={pharmacyAvatarInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/jpg,image/webp"
+                    className="hidden"
+                    onChange={handlePharmacyAvatarFileSelected}
+                    data-testid="pharmacy-avatar-input"
+                  />
+                  <div className="rounded-xl border border-pharma-grey-pale/70 bg-white px-3 py-3">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <EntityAvatar
+                        avatarPath={pharmacyAvatarPath}
+                        previewSrc={pharmacyAvatarPreviewSrc}
+                        versionToken={pharmacyAvatarVersion}
+                        signedUrlTtlSeconds={AVATAR_SIGNED_URL_TTL_SECONDS}
+                        alt={language === 'el' ? 'Λογότυπο φαρμακείου' : 'Pharmacy logo'}
+                        className="w-12 h-12 rounded-xl bg-pharma-teal/10 flex items-center justify-center overflow-hidden flex-shrink-0"
+                        imageClassName="h-full w-full object-cover"
+                        fallback={<Pill className="w-6 h-6 text-pharma-teal" />}
+                        dataTestId="pharmacy-avatar-preview"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-pharma-charcoal">
+                          {language === 'el' ? 'Λογότυπο φαρμακείου' : 'Pharmacy logo'}
+                        </p>
+                        <p className="text-xs text-pharma-slate-grey">
+                          {existingPharmacyId
+                            ? (language === 'el'
+                              ? 'PNG/JPG/WEBP έως 2MB. Το ανέβασμα ξεκινά αυτόματα.'
+                              : 'PNG/JPG/WEBP up to 2MB. Upload starts automatically.')
+                            : (language === 'el'
+                              ? 'Αποθηκεύστε πρώτα τα στοιχεία φαρμακείου για μεταφόρτωση λογοτύπου.'
+                              : 'Save pharmacy details first to upload a logo.')}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="rounded-xl gap-1.5 h-9"
+                          onClick={openPharmacyAvatarPicker}
+                          disabled={avatarPathColumnMissing || !existingPharmacyId || uploadingPharmacyAvatar || removingPharmacyAvatar || pharmacyLoading}
+                          data-testid="pharmacy-avatar-upload-btn"
+                        >
+                          <Upload className="w-4 h-4" />
+                          {uploadingPharmacyAvatar ? avatarUploadingLabel : avatarUploadLabel}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="rounded-xl gap-1.5 h-9 text-pharma-slate-grey hover:text-pharma-charcoal"
+                          onClick={removePharmacyAvatar}
+                          disabled={avatarPathColumnMissing || !existingPharmacyId || uploadingPharmacyAvatar || removingPharmacyAvatar || !pharmacyAvatarPath}
+                          data-testid="pharmacy-avatar-remove-btn"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          {avatarRemoveLabel}
+                        </Button>
+                      </div>
+                    </div>
+                    {(uploadingPharmacyAvatar || removingPharmacyAvatar) && (
+                      <p className="mt-2 text-xs text-pharma-slate-grey">
+                        {uploadingPharmacyAvatar
+                          ? (language === 'el' ? 'Ανέβασμα λογοτύπου...' : 'Uploading logo...')
+                          : (language === 'el' ? 'Αφαίρεση λογοτύπου...' : 'Removing logo...')}
+                      </p>
+                    )}
+                    {avatarPathColumnMissing && (
+                      <p className="mt-2 text-xs text-pharma-coral">{avatarMigrationRequiredLabel}</p>
+                    )}
+                  </div>
+
                   {isEditMode ? (
                     <div className="rounded-lg border border-pharma-grey-pale/70 bg-white px-3 py-2 text-xs text-pharma-slate-grey">
                       {language === 'el'
@@ -1389,6 +2024,24 @@ export default function SettingsProfilePage() {
                         </span>
                       </div>
                     )}
+                    {pinAreaLine && (
+                      <p className="text-xs text-pharma-slate-grey">
+                        <span className="font-medium text-pharma-charcoal">
+                          {language === 'el' ? 'Περιοχή:' : 'Area:'}
+                        </span>{' '}
+                        <span
+                          className="inline-block max-w-full align-top"
+                          style={{
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden'
+                          }}
+                        >
+                          {pinAreaLine}
+                        </span>
+                      </p>
+                    )}
                   </div>
 
                   <div className="space-y-2">
@@ -1459,14 +2112,14 @@ export default function SettingsProfilePage() {
                               <div className="border-t border-pharma-grey-pale/60 p-3 space-y-3">
                                 <div className="flex items-center justify-between">
                                   <span className="text-xs text-pharma-slate-grey">
-                                    {language === 'el' ? 'Κλειστό' : 'Closed'}
+                                    {language === 'el' ? 'Ανοιχτό' : 'Open'}
                                   </span>
                                   <Switch
-                                    checked={entry.closed}
+                                    checked={!entry.closed}
                                     onCheckedChange={(checked) => updateDay(day, {
-                                      closed: checked,
-                                      open: checked ? '' : entry.open,
-                                      close: checked ? '' : entry.close
+                                      closed: !checked,
+                                      open: checked ? entry.open : '',
+                                      close: checked ? entry.close : ''
                                     })}
                                     data-testid={`hours-closed-${day}`}
                                     disabled={pharmacyLoading}

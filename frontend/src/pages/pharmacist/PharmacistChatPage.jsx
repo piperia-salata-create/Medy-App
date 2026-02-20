@@ -4,16 +4,18 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { supabase } from '../../lib/supabase';
 import { compressChatImage } from '../../lib/chatImageCompression';
+import EntityAvatar from '../../components/common/EntityAvatar';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Card, CardContent } from '../../components/ui/card';
 import { EmptyState } from '../../components/ui/empty-states';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '../../components/ui/dialog';
 import { Skeleton } from '../../components/ui/skeleton';
-import { ArrowLeft, Ban, CheckCheck, Flag, Image as ImageIcon, MessageCircle, Paperclip, Send } from 'lucide-react';
+import { ArrowLeft, Ban, CheckCheck, Flag, Image as ImageIcon, MessageCircle, Paperclip, Pill, Send, User } from 'lucide-react';
 import { toast } from 'sonner';
 
 const CHAT_ATTACHMENT_BUCKET = 'chat-attachments';
+const FINALIZED_EXCHANGE_STATUSES = new Set(['completed', 'closed', 'executed', 'finalized']);
 
 const formatDateTime = (value, locale = 'en-US') => {
   if (!value) return '-';
@@ -62,8 +64,23 @@ const ConversationList = React.memo(function ConversationList({
             onClick={() => onSelectConversation(conv.id)}
             data-testid={`chat-conversation-${conv.id}`}
           >
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-medium text-pharma-dark-slate truncate">{conv.title}</p>
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex min-w-0 items-start gap-2">
+                <EntityAvatar
+                  avatarPath={conv.avatar_path}
+                  alt={conv.title || ui.conversationFallback}
+                  className="mt-0.5 h-8 w-8 rounded-full bg-pharma-ice-blue flex items-center justify-center flex-shrink-0 overflow-hidden"
+                  imageClassName="h-full w-full object-cover"
+                  fallback={conv.type === 'exchange'
+                    ? <Pill className="w-4 h-4 text-pharma-teal" />
+                    : <User className="w-4 h-4 text-pharma-steel-blue" />}
+                  dataTestId={`chat-conversation-avatar-${conv.id}`}
+                />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-pharma-dark-slate truncate">{conv.title}</p>
+                  <p className="text-xs text-pharma-slate-grey truncate mt-0.5">{conv.subtitle}</p>
+                </div>
+              </div>
               <span className={`text-[11px] rounded-full px-2 py-0.5 ${
                 conv.type === 'exchange'
                   ? 'bg-pharma-teal/10 text-pharma-teal'
@@ -72,7 +89,6 @@ const ConversationList = React.memo(function ConversationList({
                 {conv.type === 'exchange' ? ui.exchangeTag : ui.directTag}
               </span>
             </div>
-            <p className="text-xs text-pharma-slate-grey truncate mt-0.5">{conv.subtitle}</p>
           </button>
         ))}
       </CardContent>
@@ -85,6 +101,7 @@ const ChatHeader = React.memo(function ChatHeader({
   activeConversationId,
   requestedByMe,
   requestedByOther,
+  completionLocked,
   requestingCompletion,
   confirmingCompletion,
   reportingConversation,
@@ -113,7 +130,7 @@ const ChatHeader = React.memo(function ChatHeader({
                   : 'border-pharma-grey-pale text-pharma-slate-grey hover:border-pharma-teal hover:bg-pharma-teal hover:text-white'
             }`}
             onClick={onCompleteConversation}
-            disabled={!activeConversationId || requestingCompletion || confirmingCompletion || requestedByMe}
+            disabled={!activeConversationId || requestingCompletion || confirmingCompletion || completionLocked}
             data-testid="chat-complete-btn"
           >
             <CheckCheck className="w-4 h-4" />
@@ -300,7 +317,9 @@ export default function PharmacistChatPage() {
     imageUnavailable: isGreek ? 'Η εικόνα δεν είναι διαθέσιμη' : 'Image unavailable',
     completeConversationShort: isGreek ? 'Ολοκλήρωση' : 'Complete',
     completionRequestedToast: isGreek ? 'Ζητήθηκε ολοκλήρωση συνομιλίας' : 'Conversation completion requested',
+    completionRequestCancelledToast: isGreek ? 'Ακυρώθηκε το αίτημα ολοκλήρωσης' : 'Conversation completion request cancelled',
     completionRequestError: isGreek ? 'Αποτυχία αιτήματος ολοκλήρωσης' : 'Failed to request completion',
+    completionCancelRequestError: isGreek ? 'Αποτυχία ακύρωσης αιτήματος ολοκλήρωσης' : 'Failed to cancel completion request',
     completionBanner: isGreek ? 'Ζητήθηκε ολοκλήρωση από τον άλλο χρήστη.' : 'The other user requested completion.',
     completionConfirmTitle: isGreek ? 'Ολοκλήρωση συνομιλίας' : 'Complete conversation',
     completionConfirmDesc: isGreek ? 'Κλείσιμο & διαγραφή συνομιλίας;' : 'Close & delete conversation?',
@@ -355,6 +374,7 @@ export default function PharmacistChatPage() {
 
   const requestedByMe = Boolean(activeConversation?.close_requested_by && activeConversation.close_requested_by === userId);
   const requestedByOther = Boolean(activeConversation?.close_requested_by && activeConversation.close_requested_by !== userId);
+  const completionLocked = Boolean(activeConversation?.completionLocked);
 
   const handleConversationSelect = useCallback((nextConversationId) => {
     setActiveConversationId((currentId) => (currentId === nextConversationId ? currentId : nextConversationId));
@@ -488,13 +508,13 @@ export default function PharmacistChatPage() {
       const profilePromise = allMemberIds.length > 0
         ? supabase
           .from('profiles')
-          .select('id, full_name, email, pharmacy_name')
+          .select('*')
           .in('id', allMemberIds)
         : Promise.resolve({ data: [], error: null });
       const ownerPharmacyPromise = allMemberIds.length > 0
         ? supabase
           .from('pharmacies')
-          .select('id, owner_id, name')
+          .select('*')
           .in('owner_id', allMemberIds)
         : Promise.resolve({ data: [], error: null });
 
@@ -534,6 +554,7 @@ export default function PharmacistChatPage() {
       } else if (process.env.NODE_ENV !== 'production') {
         console.warn('Unable to load pharmacy-by-owner labels for chats:', ownerPharmacyError);
       }
+      const myPharmacyId = pharmaciesByOwnerId.get(userId)?.id || null;
 
       let requestsById = new Map();
       let offersById = new Map();
@@ -572,7 +593,7 @@ export default function PharmacistChatPage() {
           const pharmacyPromise = pharmacyIds.length > 0
             ? supabase
               .from('pharmacies')
-              .select('id, name')
+              .select('*')
               .in('id', pharmacyIds)
             : Promise.resolve({ data: [], error: null });
           const medicinePromise = medicineIds.length > 0
@@ -611,9 +632,19 @@ export default function PharmacistChatPage() {
           const medicine = medicinesById.get(offer?.medicine_id);
           const offerPharmacy = pharmaciesById.get(offer?.pharmacy_id);
           const reqPharmacy = pharmaciesById.get(req?.requesting_pharmacy_id);
+          const counterpartyPharmacy = (
+            myPharmacyId
+              ? (req?.requesting_pharmacy_id === myPharmacyId ? offerPharmacy : reqPharmacy)
+              : (reqPharmacy || offerPharmacy)
+          );
+          const requestStatus = typeof req?.status === 'string' ? req.status : null;
+          const normalizedRequestStatus = requestStatus ? requestStatus.toLowerCase() : null;
           return {
             ...conv,
             otherUserId,
+            avatar_path: counterpartyPharmacy?.avatar_path || reqPharmacy?.avatar_path || offerPharmacy?.avatar_path || null,
+            requestStatus,
+            completionLocked: Boolean(normalizedRequestStatus && FINALIZED_EXCHANGE_STATUSES.has(normalizedRequestStatus)),
             title: `${medicine?.name || ui.exchangeFallback} - ${offerPharmacy?.name || '-'} -> ${reqPharmacy?.name || '-'}`,
             subtitle: req?.status ? `${ui.statusPrefix}: ${req.status}` : ui.exchangeConversation,
             contactLabel: reqPharmacy?.name || offerPharmacy?.name || ui.contact
@@ -639,6 +670,9 @@ export default function PharmacistChatPage() {
         return {
           ...conv,
           otherUserId: resolvedOtherUserId,
+          avatar_path: otherProfile?.avatar_path || ownerPharmacy?.avatar_path || null,
+          requestStatus: null,
+          completionLocked: false,
           title: directTitle,
           subtitle: directSubtitleCandidate === directTitle ? ui.directConversation : directSubtitleCandidate,
           contactLabel:
@@ -862,22 +896,73 @@ export default function PharmacistChatPage() {
     }
   }, [activeConversationId, loadMessages, ui.imageTooLarge, ui.imageUnsupported, ui.imageUploadError, userId]);
 
-  const requestConversationCompletion = useCallback(async () => {
-    if (!activeConversationId) return;
+  const toggleConversationCompletionRequest = useCallback(async (nextRequested) => {
+    if (!activeConversationId || !userId || completionLocked) return;
+
+    const previousRequestedBy = activeConversation?.close_requested_by ?? null;
+    const previousRequestedAt = activeConversation?.close_requested_at ?? null;
+    const optimisticRequestedBy = nextRequested ? userId : null;
+    const optimisticRequestedAt = nextRequested ? new Date().toISOString() : null;
+
     setRequestingCompletion(true);
+    setConversations((previousRows) => previousRows.map((row) => (
+      row.id === activeConversationId
+        ? {
+          ...row,
+          close_requested_by: optimisticRequestedBy,
+          close_requested_at: optimisticRequestedAt
+        }
+        : row
+    )));
+
     try {
-      const { error } = await supabase.rpc('request_conversation_completion', {
-        p_conversation_id: activeConversationId
+      const { data, error } = await supabase.rpc('toggle_conversation_completion_request', {
+        p_conversation_id: activeConversationId,
+        p_requested: nextRequested
       });
       if (error) throw error;
-      toast.success(ui.completionRequestedToast);
+
+      const updatedState = Array.isArray(data) ? data[0] : data;
+      if (updatedState && typeof updatedState === 'object') {
+        setConversations((previousRows) => previousRows.map((row) => (
+          row.id === activeConversationId
+            ? {
+              ...row,
+              close_requested_by: updatedState.close_requested_by ?? null,
+              close_requested_at: updatedState.close_requested_at ?? null
+            }
+            : row
+        )));
+      }
+
+      toast.success(nextRequested ? ui.completionRequestedToast : ui.completionRequestCancelledToast);
       await loadConversations({ background: true, preferredConversationId: activeConversationId });
     } catch (error) {
-      toast.error(error?.message || ui.completionRequestError);
+      setConversations((previousRows) => previousRows.map((row) => (
+        row.id === activeConversationId
+          ? {
+            ...row,
+            close_requested_by: previousRequestedBy,
+            close_requested_at: previousRequestedAt
+          }
+          : row
+      )));
+      toast.error(error?.message || (nextRequested ? ui.completionRequestError : ui.completionCancelRequestError));
     } finally {
       setRequestingCompletion(false);
     }
-  }, [activeConversationId, loadConversations, ui.completionRequestError, ui.completionRequestedToast]);
+  }, [
+    activeConversation?.close_requested_at,
+    activeConversation?.close_requested_by,
+    activeConversationId,
+    completionLocked,
+    loadConversations,
+    ui.completionCancelRequestError,
+    ui.completionRequestCancelledToast,
+    ui.completionRequestError,
+    ui.completionRequestedToast,
+    userId
+  ]);
 
   const confirmConversationDelete = useCallback(async () => {
     if (!activeConversationId) return;
@@ -900,13 +985,13 @@ export default function PharmacistChatPage() {
   }, [activeConversationId, loadConversations, navigate, ui.completionDeleteError, ui.completionDeletedToast]);
 
   const completeConversation = useCallback(() => {
-    if (!activeConversationId) return;
+    if (!activeConversationId || completionLocked) return;
     if (requestedByOther) {
       setCompletionConfirmOpen(true);
       return;
     }
-    requestConversationCompletion();
-  }, [activeConversationId, requestConversationCompletion, requestedByOther]);
+    toggleConversationCompletionRequest(!requestedByMe);
+  }, [activeConversationId, completionLocked, requestedByMe, requestedByOther, toggleConversationCompletionRequest]);
 
   const blockParticipant = useCallback(async () => {
     const targetUserId = activeConversation?.otherUserId;
@@ -1001,6 +1086,7 @@ export default function PharmacistChatPage() {
                   activeConversationId={activeConversationId}
                   requestedByMe={requestedByMe}
                   requestedByOther={requestedByOther}
+                  completionLocked={completionLocked}
                   requestingCompletion={requestingCompletion}
                   confirmingCompletion={confirmingCompletion}
                   reportingConversation={reportingConversation}

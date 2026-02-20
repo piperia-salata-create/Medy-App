@@ -429,7 +429,7 @@ export default function PharmacistDashboardLazy() {
           status,
           responded_at,
           request_id,
-          request:patient_requests!patient_request_recipients_request_id_fkey (
+          request:patient_requests!patient_request_recipients_request_id_fkey!inner (
             id,
             medicine_query,
             dosage,
@@ -438,13 +438,16 @@ export default function PharmacistDashboardLazy() {
             status,
             created_at,
             expires_at,
+            deleted_at,
             selected_pharmacy_id,
             notes
           )
         `)
         .eq('pharmacy_id', pharmacyId)
         .eq('status', 'pending')
+        .is('patient_requests.deleted_at', null)
         .gt('patient_requests.expires_at', nowIso)
+        .neq('patient_requests.status', 'cancelled')
         .or(`selected_pharmacy_id.is.null,selected_pharmacy_id.eq.${pharmacyId}`, { foreignTable: 'patient_requests' })
         .order('updated_at', { ascending: false });
 
