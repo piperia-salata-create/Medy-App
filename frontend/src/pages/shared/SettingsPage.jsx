@@ -1,29 +1,36 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { useSeniorMode } from '../../contexts/SeniorModeContext';
+import { useTutorial } from '../../contexts/TutorialContext';
 import EntityAvatar from '../../components/common/EntityAvatar';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent } from '../../components/ui/card';
 import { Switch } from '../../components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
+import { openConsentPreferences } from '../../lib/consent';
 import { 
   ArrowLeft, 
   Globe, 
   Accessibility,
   Bell,
+  Shield,
   User,
   LogOut,
   ChevronRight,
-  Info
+  Info,
+  BookOpen
 } from 'lucide-react';
 
 export default function SettingsPage() {
-  const { user, profile, signOut, isPharmacist } = useAuth();
+  const { user, profile, profileStatus, signOut, isPharmacist } = useAuth();
   const { t, language, setLanguage } = useLanguage();
   const { seniorMode, setSeniorMode } = useSeniorMode();
+  const { replayTutorial, isTutorialOpen } = useTutorial();
   const navigate = useNavigate();
+  const [replayPending, setReplayPending] = useState(false);
+  const hideProfileAvatarFallback = Boolean(user && profileStatus === 'loading' && !profile?.avatar_path);
 
   const handleSignOut = async () => {
     await signOut();
@@ -31,6 +38,17 @@ export default function SettingsPage() {
   };
 
   const basePath = isPharmacist() ? '/pharmacist' : '/patient';
+  const tutorialRole = isPharmacist() ? 'pharmacist' : 'patient';
+
+  const handleReplayTutorial = async () => {
+    if (replayPending) return;
+    setReplayPending(true);
+    try {
+      await replayTutorial(tutorialRole);
+    } finally {
+      setReplayPending(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-pharma-ice-blue" data-testid="settings-page">
@@ -61,7 +79,7 @@ export default function SettingsPage() {
                     alt={language === 'el' ? 'Εικόνα προφίλ' : 'Profile avatar'}
                     className="w-14 h-14 rounded-xl bg-pharma-teal/10 flex items-center justify-center overflow-hidden"
                     imageClassName="h-full w-full object-cover"
-                    fallback={<User className="w-7 h-7 text-pharma-teal" />}
+                    fallback={hideProfileAvatarFallback ? null : <User className="w-7 h-7 text-pharma-teal" />}
                     dataTestId="settings-avatar-preview"
                   />
                   <div>
@@ -134,7 +152,7 @@ export default function SettingsPage() {
               </div>
 
               {/* Notifications Info */}
-              <div className="p-4">
+              <div className="p-4 border-b border-pharma-grey-pale/50">
                 <div className="flex items-start gap-3">
                   <div className="w-9 h-9 rounded-lg bg-pharma-royal-blue/10 flex items-center justify-center flex-shrink-0">
                     <Bell className="w-5 h-5 text-pharma-royal-blue" />
@@ -152,6 +170,40 @@ export default function SettingsPage() {
                   </div>
                 </div>
               </div>
+
+              <button
+                type="button"
+                className="w-full flex items-center justify-between p-4 hover:bg-pharma-ice-blue/50 transition-colors text-left"
+                onClick={openConsentPreferences}
+                data-testid="open-consent-preferences-btn"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-pharma-teal/10 flex items-center justify-center">
+                    <Shield className="w-5 h-5 text-pharma-teal" />
+                  </div>
+                  <span className="text-sm text-pharma-charcoal">{t('privacySettings')}</span>
+                </div>
+                <ChevronRight className="w-5 h-5 text-pharma-slate-grey" />
+              </button>
+
+              <button
+                type="button"
+                className="w-full flex items-center justify-between p-4 border-t border-pharma-grey-pale/50 hover:bg-pharma-ice-blue/50 transition-colors text-left disabled:opacity-60"
+                onClick={handleReplayTutorial}
+                disabled={replayPending || isTutorialOpen}
+                data-testid="replay-tutorial-btn"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-pharma-royal-blue/10 flex items-center justify-center">
+                    <BookOpen className="w-5 h-5 text-pharma-royal-blue" />
+                  </div>
+                  <div>
+                    <span className="text-sm text-pharma-charcoal block">{t('replayTutorial')}</span>
+                    <span className="text-xs text-pharma-slate-grey">{t('replayTutorialHelp')}</span>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-pharma-slate-grey" />
+              </button>
             </CardContent>
           </Card>
         </section>

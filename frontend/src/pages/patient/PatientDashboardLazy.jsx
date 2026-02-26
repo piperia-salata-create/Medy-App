@@ -8,7 +8,8 @@ import { supabase } from '../../lib/supabase';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '../../components/ui/dialog';
+import { Checkbox } from '../../components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import EntityAvatar from '../../components/common/EntityAvatar';
 import { OnCallBadge } from '../../components/ui/status-badge';
@@ -46,6 +47,7 @@ const PatientRequestsList = lazy(() => import('./PatientRequestsListLazy').then(
 })));
 
 const isDev = process.env.NODE_ENV !== 'production';
+const PATIENT_REQUEST_WARNING_ACK_KEY = 'patient_request_warning_acknowledged';
 const patientDashboardUiCache = {
   deferMountReady: false,
   lightStageReady: false,
@@ -189,6 +191,8 @@ export default function PatientDashboardLazy() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [viewMode, setViewMode] = useState('list'); // 'list' or 'map'
   const [requestDialogOpen, setRequestDialogOpen] = useState(false);
+  const [requestWarningDialogOpen, setRequestWarningDialogOpen] = useState(false);
+  const [requestWarningSkipFuture, setRequestWarningSkipFuture] = useState(false);
   const [requestMedicine, setRequestMedicine] = useState('');
   const [requestMedicineSuggestions, setRequestMedicineSuggestions] = useState([]);
   const [requestMedicineFocused, setRequestMedicineFocused] = useState(false);
@@ -198,6 +202,9 @@ export default function PatientDashboardLazy() {
   const [requestUrgency, setRequestUrgency] = useState('normal');
   const [requestDuration, setRequestDuration] = useState('1h');
   const [requestSending, setRequestSending] = useState(false);
+  const [noShowStatus, setNoShowStatus] = useState({ reportsLast30d: 0, suspendedUntil: null });
+  const [noShowStatusLoading, setNoShowStatusLoading] = useState(false);
+  const [suspensionDialogOpen, setSuspensionDialogOpen] = useState(false);
   const [cancelingId, setCancelingId] = useState(null);
   const [choosingPharmacyId, setChoosingPharmacyId] = useState(null);
   const [myRequests, setMyRequests] = useState([]);
@@ -210,6 +217,7 @@ export default function PatientDashboardLazy() {
   const nearbyLoadedRef = useRef(patientDashboardUiCache.nearbyLoaded);
   const requestsLoadedRef = useRef(false);
   const myRequestsRef = useRef([]);
+  const suspensionPromptedRef = useRef(false);
   const [deferMount, setDeferMount] = useState(patientDashboardUiCache.deferMountReady);
   const [lightStageReady, setLightStageReady] = useState(patientDashboardUiCache.lightStageReady);
   const canLoadLight = isProfileReady && lightStageReady;
@@ -233,6 +241,50 @@ export default function PatientDashboardLazy() {
   const canQueryNearby = hasLocation && hasRadius;
   const showNearbyDisabledState = nearbyDisabled || !canQueryNearby;
   const showRequestMedicineSuggestions = requestMedicineFocused && requestMedicine.trim().length > 0;
+  const reportsLast30d = Number(noShowStatus?.reportsLast30d ?? 0);
+  const suspendedUntilMs = noShowStatus?.suspendedUntil ? new Date(noShowStatus.suspendedUntil).getTime() : NaN;
+  const isSuspended = Number.isFinite(suspendedUntilMs) && suspendedUntilMs > Date.now();
+  const showNoShowSoftWarning = reportsLast30d === 2 && !isSuspended;
+  const formattedSuspendedUntil = useMemo(() => {
+    if (!noShowStatus?.suspendedUntil) return '-';
+    const value = new Date(noShowStatus.suspendedUntil);
+    if (Number.isNaN(value.getTime())) return '-';
+    return value.toLocaleString(language === 'el' ? 'el-GR' : 'en-US');
+  }, [language, noShowStatus?.suspendedUntil]);
+
+  const isSuspendedFromStatus = useCallback((statusValue) => {
+    const suspendedUntil = statusValue?.suspendedUntil;
+    if (!suspendedUntil) return false;
+    const suspendedAtMs = new Date(suspendedUntil).getTime();
+    return Number.isFinite(suspendedAtMs) && suspendedAtMs > Date.now();
+  }, []);
+
+  const fetchNoShowStatus = useCallback(async () => {
+    if (!userId) {
+      const fallback = { reportsLast30d: 0, suspendedUntil: null };
+      setNoShowStatus(fallback);
+      return fallback;
+    }
+
+    setNoShowStatusLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('get_patient_no_show_status');
+      if (error) throw error;
+
+      const payload = Array.isArray(data) ? data[0] : data;
+      const next = {
+        reportsLast30d: Number(payload?.reports_last_30d || 0),
+        suspendedUntil: payload?.suspended_until || null
+      };
+      setNoShowStatus(next);
+      return next;
+    } catch (error) {
+      console.error('Error loading patient no-show status:', error);
+      return { reportsLast30d: 0, suspendedUntil: null };
+    } finally {
+      setNoShowStatusLoading(false);
+    }
+  }, [userId]);
 
   useEffect(() => {
     const query = requestMedicine.trim();
@@ -281,8 +333,19 @@ export default function PatientDashboardLazy() {
     if (!requestDialogOpen) {
       setRequestMedicineSuggestions([]);
       setRequestMedicineFocused(false);
+      setRequestWarningDialogOpen(false);
+      setRequestWarningSkipFuture(false);
+      suspensionPromptedRef.current = false;
     }
   }, [requestDialogOpen]);
+
+  useEffect(() => {
+    if (!requestDialogOpen) return;
+    if (!isSuspended) return;
+    if (suspensionPromptedRef.current) return;
+    suspensionPromptedRef.current = true;
+    setSuspensionDialogOpen(true);
+  }, [requestDialogOpen, isSuspended]);
 
   // Fetch pharmacies
   const fetchPharmacies = useCallback(async () => {
@@ -331,10 +394,37 @@ export default function PatientDashboardLazy() {
 
       if (error) throw error;
 
-      const pharmacyData = (data || []).map((row) => ({
+      let pharmacyData = (data || []).map((row) => ({
         ...row,
         distance: row.distance_km
       }));
+      const missingAvatarIds = Array.from(
+        new Set(
+          pharmacyData
+            .filter((row) => row?.id && !row?.avatar_path)
+            .map((row) => row.id)
+        )
+      );
+      if (missingAvatarIds.length > 0) {
+        const { data: avatarRows, error: avatarError } = await supabase
+          .from('pharmacies')
+          .select('id, avatar_path')
+          .in('id', missingAvatarIds);
+        if (!avatarError && Array.isArray(avatarRows) && avatarRows.length > 0) {
+          const avatarPathById = new Map(
+            avatarRows
+              .filter((row) => row?.id && row?.avatar_path)
+              .map((row) => [row.id, row.avatar_path])
+          );
+          if (avatarPathById.size > 0) {
+            pharmacyData = pharmacyData.map((row) => {
+              if (!row?.id) return row;
+              const resolvedAvatarPath = avatarPathById.get(row.id);
+              return resolvedAvatarPath ? { ...row, avatar_path: resolvedAvatarPath } : row;
+            });
+          }
+        }
+      }
       if (isDev) {
         console.log('[PatientDashboard] nearby pharmacies fetch', {
           userCoords: userLocation ? { lat: userLocation.lat, lng: userLocation.lng } : null,
@@ -538,6 +628,8 @@ export default function PatientDashboardLazy() {
 
   // Create patient request
   const sendPatientRequest = async () => {
+    if (requestSending) return;
+
     if (!userId) {
       toast.error(t('requestSignInRequired'));
       return;
@@ -545,6 +637,12 @@ export default function PatientDashboardLazy() {
 
     if (!requestMedicine.trim()) {
       toast.error(t('requestMedicineRequired'));
+      return;
+    }
+
+    const latestNoShowStatus = await fetchNoShowStatus();
+    if (isSuspendedFromStatus(latestNoShowStatus)) {
+      setSuspensionDialogOpen(true);
       return;
     }
 
@@ -615,10 +713,61 @@ export default function PatientDashboardLazy() {
       }
     } catch (error) {
       console.error('Error sending request:', error);
-      toast.error(t('errorOccurred'));
+      const latestStatus = await fetchNoShowStatus();
+      if (isSuspendedFromStatus(latestStatus)) {
+        setSuspensionDialogOpen(true);
+      } else {
+        toast.error(t('errorOccurred'));
+      }
     } finally {
       setRequestSending(false);
     }
+  };
+
+  const hasRequestWarningAcknowledged = () => {
+    try {
+      return window.localStorage.getItem(PATIENT_REQUEST_WARNING_ACK_KEY) === 'true';
+    } catch (error) {
+      return false;
+    }
+  };
+
+  const handleRequestSubmitClick = () => {
+    if (requestSending) return;
+
+    if (isSuspended) {
+      setSuspensionDialogOpen(true);
+      return;
+    }
+
+    if (hasRequestWarningAcknowledged()) {
+      sendPatientRequest();
+      return;
+    }
+
+    setRequestWarningSkipFuture(false);
+    setRequestWarningDialogOpen(true);
+  };
+
+  const handleRequestWarningConfirm = async () => {
+    if (requestSending) return;
+
+    if (isSuspended) {
+      setRequestWarningDialogOpen(false);
+      setSuspensionDialogOpen(true);
+      return;
+    }
+
+    if (requestWarningSkipFuture) {
+      try {
+        window.localStorage.setItem(PATIENT_REQUEST_WARNING_ACK_KEY, 'true');
+      } catch (error) {
+        // Ignore storage errors and continue with submit.
+      }
+    }
+
+    setRequestWarningDialogOpen(false);
+    await sendPatientRequest();
   };
 
   const cancelPatientRequest = async (requestId, request) => {
@@ -835,10 +984,15 @@ export default function PatientDashboardLazy() {
     if (initLightFetchSessionRef.current === sessionKey) return;
     initLightFetchSessionRef.current = sessionKey;
     const init = async () => {
-      await Promise.all([fetchFavorites(), fetchAcceptedCancelCount()]);
+      await Promise.all([fetchFavorites(), fetchAcceptedCancelCount(), fetchNoShowStatus()]);
     };
     init();
-  }, [authLoading, fetchFavorites, fetchAcceptedCancelCount, userId, canLoadLight]);
+  }, [authLoading, fetchFavorites, fetchAcceptedCancelCount, fetchNoShowStatus, userId, canLoadLight]);
+
+  useEffect(() => {
+    if (!requestDialogOpen) return;
+    fetchNoShowStatus();
+  }, [requestDialogOpen, fetchNoShowStatus]);
 
   // Initial fetch
   useEffect(() => {
@@ -937,19 +1091,19 @@ export default function PatientDashboardLazy() {
           <nav className="hidden md:flex items-center gap-1">
             <Link to="/patient/favorites">
               <Button variant="ghost" size="sm" className="rounded-full gap-2 h-9" data-testid="nav-favorites-btn">
-                <Heart className="w-4 h-4" />
+                <Heart className="w-4 h-4 text-pharma-teal" />
                 {t('favorites')}
               </Button>
             </Link>
             <Link to="/patient/reminders">
               <Button variant="ghost" size="sm" className="rounded-full gap-2 h-9" data-testid="nav-reminders-btn">
-                <Clock className="w-4 h-4" />
+                <Clock className="w-4 h-4 text-pharma-teal" />
                 {language === 'el' ? 'Υπενθυμίσεις' : 'Reminders'}
               </Button>
             </Link>
             <Link to="/patient/notifications" className="relative">
               <Button variant="ghost" size="sm" className="rounded-full gap-2 h-9" data-testid="nav-notifications-btn">
-                <Bell className="w-4 h-4" />
+                <Bell className="w-4 h-4 text-pharma-teal" />
                 {unreadCount > 0 && (
                   <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-pharma-teal text-white text-[10px] rounded-full flex items-center justify-center font-semibold">
                     {unreadCount > 9 ? '9+' : unreadCount}
@@ -958,8 +1112,14 @@ export default function PatientDashboardLazy() {
               </Button>
             </Link>
             <Link to="/patient/settings">
-              <Button variant="ghost" size="sm" className="rounded-full h-9 w-9 p-0" data-testid="nav-settings-btn">
-                <Settings className="w-4 h-4" />
+              <Button
+                variant="ghost"
+                size="sm"
+                className="rounded-full h-9 w-9 p-0"
+                data-testid="nav-settings-btn"
+                data-tutorial="patient-settings"
+              >
+                <Settings className="w-4 h-4 text-pharma-teal" />
               </Button>
             </Link>
             <Button 
@@ -969,7 +1129,7 @@ export default function PatientDashboardLazy() {
               onClick={handleSignOut}
               data-testid="nav-signout-btn"
             >
-              <LogOut className="w-4 h-4" />
+              <LogOut className="w-4 h-4 text-pharma-teal" />
             </Button>
           </nav>
 
@@ -978,6 +1138,7 @@ export default function PatientDashboardLazy() {
             className="md:hidden p-2 rounded-lg hover:bg-pharma-ice-blue"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             data-testid="mobile-menu-btn"
+            data-tutorial="patient-settings"
           >
             {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
@@ -988,19 +1149,19 @@ export default function PatientDashboardLazy() {
           <div className="md:hidden bg-white border-t border-pharma-grey-pale p-3 space-y-1 animate-slide-up">
             <Link to="/patient/favorites" onClick={() => setMobileMenuOpen(false)}>
               <Button variant="ghost" className="w-full justify-start gap-3 rounded-lg h-11">
-                <Heart className="w-5 h-5" />
+                <Heart className="w-5 h-5 text-pharma-teal" />
                 {t('favorites')}
               </Button>
             </Link>
             <Link to="/patient/reminders" onClick={() => setMobileMenuOpen(false)}>
               <Button variant="ghost" className="w-full justify-start gap-3 rounded-lg h-11">
-                <Clock className="w-5 h-5" />
+                <Clock className="w-5 h-5 text-pharma-teal" />
                 {language === 'el' ? 'Υπενθυμίσεις' : 'Reminders'}
               </Button>
             </Link>
             <Link to="/patient/notifications" onClick={() => setMobileMenuOpen(false)}>
               <Button variant="ghost" className="w-full justify-start gap-3 rounded-lg h-11">
-                <Bell className="w-5 h-5" />
+                <Bell className="w-5 h-5 text-pharma-teal" />
                 {t('notifications')}
                 {unreadCount > 0 && (
                   <span className="ml-auto bg-pharma-teal text-white text-xs px-2 py-0.5 rounded-full">
@@ -1011,7 +1172,7 @@ export default function PatientDashboardLazy() {
             </Link>
             <Link to="/patient/settings" onClick={() => setMobileMenuOpen(false)}>
               <Button variant="ghost" className="w-full justify-start gap-3 rounded-lg h-11">
-                <Settings className="w-5 h-5" />
+                <Settings className="w-5 h-5 text-pharma-teal" />
                 {t('settings')}
               </Button>
             </Link>
@@ -1020,7 +1181,7 @@ export default function PatientDashboardLazy() {
               className="w-full justify-start gap-3 rounded-lg h-11 text-pharma-slate-grey"
               onClick={handleSignOut}
             >
-              <LogOut className="w-5 h-5" />
+              <LogOut className="w-5 h-5 text-pharma-teal" />
               {t('signOut')}
             </Button>
           </div>
@@ -1053,7 +1214,7 @@ export default function PatientDashboardLazy() {
           </section>
 
         {/* Request Medicine */}
-        <section className="page-enter">
+        <section className="page-enter" data-tutorial="patient-search">
           <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale">
             <CardContent className="p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
@@ -1071,6 +1232,7 @@ export default function PatientDashboardLazy() {
                 className="rounded-full gradient-teal text-white gap-2"
                 onClick={() => setRequestDialogOpen(true)}
                 data-testid="open-request-dialog-btn"
+                data-tutorial="patient-request"
               >
                 <Send className="w-4 h-4" />
                 {t('sendRequest')}
@@ -1095,8 +1257,8 @@ export default function PatientDashboardLazy() {
         </Suspense>
 
         {/* Nearby Pharmacies */}
-        <section className="page-enter stagger-1">
-            <div className="flex justify-between items-center mb-4">
+        <section className="page-enter stagger-1" data-nearby-refreshing={nearbyRefreshing ? '1' : '0'}>
+            <div className="flex justify-between items-center mb-4" data-tutorial="patient-near-me">
               <div className="flex items-center gap-3">
                 <h2 className="font-heading text-lg font-semibold text-pharma-dark-slate">
                   {t('nearbyPharmacies')}
@@ -1140,18 +1302,6 @@ export default function PatientDashboardLazy() {
                 </Link>
               </div>
             </div>
-
-
-            <div className="mb-3 min-h-[18px] text-xs text-pharma-slate-grey">
-              {nearbyRefreshing && !loading ? (
-                language === 'el' ? '\u0393\u03af\u03bd\u03b5\u03c4\u03b1\u03b9 \u03b5\u03bd\u03b7\u03bc\u03ad\u03c1\u03c9\u03c3\u03b7 \u03ba\u03bf\u03bd\u03c4\u03b9\u03bd\u03ce\u03bd \u03c6\u03b1\u03c1\u03bc\u03b1\u03ba\u03b5\u03af\u03c9\u03bd...' : 'Updating nearby pharmacies...'
-              ) : (
-                <span className="invisible">
-                  {language === 'el' ? '\u0393\u03af\u03bd\u03b5\u03c4\u03b1\u03b9 \u03b5\u03bd\u03b7\u03bc\u03ad\u03c1\u03c9\u03c3\u03b7 \u03ba\u03bf\u03bd\u03c4\u03b9\u03bd\u03ce\u03bd \u03c6\u03b1\u03c1\u03bc\u03b1\u03ba\u03b5\u03af\u03c9\u03bd...' : 'Updating nearby pharmacies...'}
-                </span>
-              )}
-            </div>
-
             {showNearbyDisabledState ? (
               <EmptyState
                 icon={MapPin}
@@ -1263,7 +1413,7 @@ export default function PatientDashboardLazy() {
                                   </button>
                                 </div>
 
-                                <div className="flex flex-wrap items-center gap-2 mt-2">
+                                <div className="flex flex-wrap items-center gap-2 mt-2" data-tutorial="patient-availability">
                                   {onDutyActive && <OnCallBadge />}
                                   <span className="text-xs font-medium text-pharma-teal bg-pharma-teal/10 px-2 py-0.5 rounded-full">
                                     {distanceKm !== null && distanceKm !== undefined
@@ -1331,6 +1481,29 @@ export default function PatientDashboardLazy() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
+            {showNoShowSoftWarning && (
+              <div className="rounded-xl border border-pharma-steel-blue/25 bg-pharma-ice-blue/60 px-3 py-2">
+                <p className="text-sm leading-relaxed text-pharma-dark-slate">
+                  {t('requestNoShowSoftWarningLine1')}
+                </p>
+                <p className="mt-1 text-sm leading-relaxed text-pharma-dark-slate">
+                  {t('requestNoShowSoftWarningLine2')}
+                </p>
+                <div className="mt-1">
+                  <Link
+                    to="/terms"
+                    className="text-xs text-pharma-teal underline underline-offset-2 hover:text-pharma-dark-slate"
+                  >
+                    {t('requestNoShowSoftWarningTermsLink')}
+                  </Link>
+                </div>
+              </div>
+            )}
+            {isSuspended && (
+              <div className="rounded-xl border border-pharma-grey-pale bg-pharma-grey-pale/25 px-3 py-2 text-sm text-pharma-charcoal">
+                {t('requestSuspendedInlineHint')}
+              </div>
+            )}
             <div className="space-y-2">
               <label className="text-sm font-medium text-pharma-charcoal">
                 {t('requestMedicineLabel')} *
@@ -1458,11 +1631,90 @@ export default function PatientDashboardLazy() {
             </Button>
             <Button
               className="rounded-full bg-pharma-teal hover:bg-pharma-teal/90"
-              onClick={sendPatientRequest}
-              disabled={requestSending}
+              onClick={handleRequestSubmitClick}
+              disabled={requestSending || noShowStatusLoading || isSuspended}
               data-testid="patient-request-submit-btn"
             >
               {requestSending ? t('loading') : t('sendRequest')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={requestWarningDialogOpen} onOpenChange={setRequestWarningDialogOpen}>
+        <DialogContent className="bg-white rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="font-heading text-xl text-pharma-dark-slate">
+              {t('requestSubmitWarningTitle')}
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              {t('requestSubmitWarningLine1')}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm leading-relaxed text-pharma-charcoal">
+              {t('requestSubmitWarningLine1')}
+            </p>
+            <p className="text-sm leading-relaxed text-pharma-charcoal">
+              {t('requestSubmitWarningLine2')}
+            </p>
+            <label
+              htmlFor="request-warning-skip-future"
+              className="flex items-center gap-3 pt-1 text-sm text-pharma-charcoal cursor-pointer"
+            >
+              <Checkbox
+                id="request-warning-skip-future"
+                checked={requestWarningSkipFuture}
+                onCheckedChange={(checked) => setRequestWarningSkipFuture(checked === true)}
+                data-testid="patient-request-warning-skip-checkbox"
+              />
+              <span>{t('requestSubmitWarningSkip')}</span>
+            </label>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="rounded-full"
+              onClick={() => setRequestWarningDialogOpen(false)}
+            >
+              {t('cancel')}
+            </Button>
+            <Button
+              className="rounded-full bg-pharma-teal hover:bg-pharma-teal/90"
+              onClick={handleRequestWarningConfirm}
+              disabled={requestSending}
+              data-testid="patient-request-warning-confirm-btn"
+            >
+              {t('requestSubmitWarningContinue')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={suspensionDialogOpen} onOpenChange={setSuspensionDialogOpen}>
+        <DialogContent className="bg-white rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="font-heading text-xl text-pharma-dark-slate">
+              {t('requestSuspendedTitle')}
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              {t('requestSuspendedBodyLine1')}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm leading-relaxed text-pharma-charcoal">
+              {t('requestSuspendedBodyLine1')}
+            </p>
+            <p className="text-sm leading-relaxed text-pharma-charcoal">
+              {t('requestSuspendedBodyLine2').replace('{date}', formattedSuspendedUntil)}
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              className="rounded-full bg-pharma-teal hover:bg-pharma-teal/90"
+              onClick={() => setSuspensionDialogOpen(false)}
+            >
+              {t('close')}
             </Button>
           </DialogFooter>
         </DialogContent>

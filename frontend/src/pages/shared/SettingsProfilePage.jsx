@@ -348,6 +348,12 @@ export default function SettingsProfilePage() {
   const topIdentifierAlt = isPharmacistRole
     ? (language === 'el' ? 'Λογότυπο φαρμακείου' : 'Pharmacy logo')
     : (language === 'el' ? 'Εικόνα προφίλ' : 'Profile avatar');
+  const hideTopIdentifierFallback = Boolean(
+    !isPharmacistRole
+    && loading
+    && !topIdentifierPreviewSrc
+    && !topIdentifierAvatarPath
+  );
   const todayKey = useMemo(() => jsDayOrder[new Date().getDay()] || null, []);
   const mapPinInitialPosition = useMemo(() => {
     if (pendingCoords?.latitude != null && pendingCoords?.longitude != null) {
@@ -1667,9 +1673,11 @@ export default function SettingsProfilePage() {
                   alt={topIdentifierAlt}
                   className="w-14 h-14 rounded-xl bg-pharma-teal/10 flex items-center justify-center overflow-hidden flex-shrink-0"
                   imageClassName="h-full w-full object-cover"
-                  fallback={isPharmacistRole
+                  fallback={hideTopIdentifierFallback
+                    ? null
+                    : (isPharmacistRole
                     ? <Pill className="w-7 h-7 text-pharma-teal" />
-                    : <User className="w-7 h-7 text-pharma-teal" />}
+                    : <User className="w-7 h-7 text-pharma-teal" />)}
                   dataTestId="profile-avatar-preview"
                 />
                 <div className="min-w-0 flex-1">

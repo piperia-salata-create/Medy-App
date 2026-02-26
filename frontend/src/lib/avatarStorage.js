@@ -14,12 +14,123 @@ const AVATAR_ALLOWED_MIME_TYPES = new Set([
 ]);
 
 const SIGNED_URL_CACHE = new Map();
+const SIGNED_URL_CACHE_STORAGE_KEY = 'medy.avatar.signed-url-cache.v1';
+const SIGNED_URL_CACHE_MIN_VALIDITY_MS = 30 * 1000;
+let ACTIVE_AUTH_SCOPE = 'anon';
+let SIGNED_URL_CACHE_HYDRATED = false;
 
 const normalizeAvatarPath = (value) => {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
 };
+
+const normalizeAuthScope = (value) => {
+  if (typeof value !== 'string') return 'anon';
+  const trimmed = value.trim();
+  return trimmed || 'anon';
+};
+
+const buildCacheKey = (path, authScope) => `${normalizeAuthScope(authScope)}::${path}`;
+
+const getAuthScopeFromSession = (session) => {
+  const userId = session?.user?.id ? String(session.user.id).trim() : '';
+  return userId || 'anon';
+};
+
+const getStorage = () => {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.localStorage;
+  } catch {
+    try {
+      return window.sessionStorage;
+    } catch {
+      return null;
+    }
+  }
+};
+
+const persistSignedUrlCache = () => {
+  const storage = getStorage();
+  if (!storage) return;
+  try {
+    const now = Date.now();
+    const payload = {};
+    for (const [cacheKey, entry] of SIGNED_URL_CACHE.entries()) {
+      if (!entry?.url || Number(entry?.expiresAt) <= now) continue;
+      payload[cacheKey] = {
+        url: String(entry.url),
+        expiresAt: Number(entry.expiresAt)
+      };
+    }
+    storage.setItem(SIGNED_URL_CACHE_STORAGE_KEY, JSON.stringify(payload));
+  } catch {
+    // ignore storage persistence errors
+  }
+};
+
+const hydrateSignedUrlCache = () => {
+  if (SIGNED_URL_CACHE_HYDRATED) return;
+  SIGNED_URL_CACHE_HYDRATED = true;
+  const storage = getStorage();
+  if (!storage) return;
+  try {
+    const raw = storage.getItem(SIGNED_URL_CACHE_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return;
+    const now = Date.now();
+    let changed = false;
+    Object.entries(parsed).forEach(([cacheKey, entry]) => {
+      const url = typeof entry?.url === 'string' ? entry.url : '';
+      const expiresAt = Number(entry?.expiresAt);
+      if (!cacheKey || !url || !Number.isFinite(expiresAt) || expiresAt <= now) {
+        changed = true;
+        return;
+      }
+      SIGNED_URL_CACHE.set(cacheKey, { url, expiresAt });
+    });
+    if (changed) {
+      persistSignedUrlCache();
+    }
+  } catch {
+    // ignore storage hydration errors
+  }
+};
+
+const readCachedSignedUrl = (cacheKey) => {
+  const now = Date.now();
+  const cached = SIGNED_URL_CACHE.get(cacheKey);
+  if (!cached) return null;
+  if (cached.expiresAt > now + SIGNED_URL_CACHE_MIN_VALIDITY_MS) {
+    return cached.url;
+  }
+  SIGNED_URL_CACHE.delete(cacheKey);
+  persistSignedUrlCache();
+  return null;
+};
+
+const writeCachedSignedUrl = (cacheKey, url, expiresAt) => {
+  if (!cacheKey || !url || !Number.isFinite(expiresAt)) return;
+  SIGNED_URL_CACHE.set(cacheKey, { url, expiresAt });
+  persistSignedUrlCache();
+};
+
+const removeCachedSignedUrlByPath = (normalizedPath) => {
+  let changed = false;
+  for (const cacheKey of SIGNED_URL_CACHE.keys()) {
+    if (cacheKey.endsWith(`::${normalizedPath}`)) {
+      SIGNED_URL_CACHE.delete(cacheKey);
+      changed = true;
+    }
+  }
+  if (changed) {
+    persistSignedUrlCache();
+  }
+};
+
+export const buildAvatarAuthScope = (session) => getAuthScopeFromSession(session);
 
 export const buildUserAvatarPath = (userId) => {
   const normalizedId = normalizeAvatarPath(userId);
@@ -134,23 +245,74 @@ export const appendAvatarCacheBust = (url, versionToken) => {
   return `${url}${separator}v=${encodeURIComponent(versionValue)}`;
 };
 
+export const clearAvatarSignedUrlCache = () => {
+  hydrateSignedUrlCache();
+  SIGNED_URL_CACHE.clear();
+  const storage = getStorage();
+  try {
+    storage?.removeItem(SIGNED_URL_CACHE_STORAGE_KEY);
+  } catch {
+    // ignore storage clear errors
+  }
+};
+
+export const syncAvatarSignedUrlCacheScope = (session) => {
+  const nextScope = getAuthScopeFromSession(session);
+  if (nextScope === ACTIVE_AUTH_SCOPE) return false;
+  ACTIVE_AUTH_SCOPE = nextScope;
+  clearAvatarSignedUrlCache();
+  return true;
+};
+
 export const invalidateAvatarSignedUrl = (path) => {
+  hydrateSignedUrlCache();
   const normalizedPath = normalizeAvatarPath(path);
   if (!normalizedPath) return;
-  SIGNED_URL_CACHE.delete(normalizedPath);
+  removeCachedSignedUrlByPath(normalizedPath);
+};
+
+export const peekSignedAvatarUrl = (
+  path,
+  {
+    authScope
+  } = {}
+) => {
+  hydrateSignedUrlCache();
+  const normalizedPath = normalizeAvatarPath(path);
+  if (!normalizedPath) return null;
+  const cacheScope = normalizeAuthScope(authScope || ACTIVE_AUTH_SCOPE);
+  const cacheKey = buildCacheKey(normalizedPath, cacheScope);
+  return readCachedSignedUrl(cacheKey);
+};
+
+export const peekPersistedSignedUrl = (authScope, path) => {
+  hydrateSignedUrlCache();
+  const normalizedPath = normalizeAvatarPath(path);
+  if (!normalizedPath) return null;
+  const cacheScope = normalizeAuthScope(authScope || ACTIVE_AUTH_SCOPE);
+  const cacheKey = buildCacheKey(normalizedPath, cacheScope);
+  return readCachedSignedUrl(cacheKey);
 };
 
 export const getSignedAvatarUrl = async (
   path,
-  { expiresIn = AVATAR_SIGNED_URL_TTL_SECONDS, forceRefresh = false } = {}
+  {
+    expiresIn = AVATAR_SIGNED_URL_TTL_SECONDS,
+    forceRefresh = false,
+    authScope
+  } = {}
 ) => {
+  hydrateSignedUrlCache();
   const normalizedPath = normalizeAvatarPath(path);
   if (!normalizedPath) return null;
+  const cacheScope = normalizeAuthScope(authScope || ACTIVE_AUTH_SCOPE);
+  const cacheKey = buildCacheKey(normalizedPath, cacheScope);
 
-  const now = Date.now();
-  const cached = SIGNED_URL_CACHE.get(normalizedPath);
-  if (!forceRefresh && cached && cached.expiresAt > now + 30 * 1000) {
-    return cached.url;
+  if (!forceRefresh) {
+    const cachedUrl = readCachedSignedUrl(cacheKey);
+    if (cachedUrl) {
+      return cachedUrl;
+    }
   }
 
   const { data, error } = await supabase.storage
@@ -161,10 +323,9 @@ export const getSignedAvatarUrl = async (
   const signedUrl = data?.signedUrl || null;
   if (!signedUrl) return null;
 
-  SIGNED_URL_CACHE.set(normalizedPath, {
-    url: signedUrl,
-    expiresAt: now + Math.max(60 * 1000, (expiresIn - 60) * 1000)
-  });
+  const now = Date.now();
+  const expiresAt = now + Math.max(60 * 1000, (expiresIn - 60) * 1000);
+  writeCachedSignedUrl(cacheKey, signedUrl, expiresAt);
 
   return signedUrl;
 };

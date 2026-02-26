@@ -1,8 +1,14 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { supabase, supabaseAnonKey, supabaseUrl } from '../lib/supabase';
+import {
+  buildAvatarAuthScope,
+  clearAvatarSignedUrlCache,
+  getSignedAvatarUrl,
+  syncAvatarSignedUrlCacheScope
+} from '../lib/avatarStorage';
 
 const DEBUG_AUTH = false;
-const PROFILE_SELECT_FIELDS_BASE = 'id, role, full_name, honorific, pharmacy_name, email, radius_km';
+const PROFILE_SELECT_FIELDS_BASE = 'id, role, full_name, honorific, pharmacy_name, email, radius_km, suspended_until, suspension_reason, patient_tutorial_version_seen, pharmacist_tutorial_version_seen';
 const PROFILE_SELECT_FIELDS_WITH_AVATAR = `${PROFILE_SELECT_FIELDS_BASE}, avatar_path`;
 
 const isMissingAvatarPathColumnError = (error) => {
@@ -362,6 +368,19 @@ export const AuthProvider = ({ children }) => {
         });
       }
 
+      const profileAvatarPath = typeof data?.avatar_path === 'string'
+        ? data.avatar_path.trim()
+        : '';
+      if (profileAvatarPath && activeSession?.access_token) {
+        try {
+          await getSignedAvatarUrl(profileAvatarPath, {
+            authScope: buildAvatarAuthScope(activeSession)
+          });
+        } catch {
+          // Avatar prewarm is best-effort and should never block profile load.
+        }
+      }
+
       if (!data) {
         if (isActiveRequest()) {
           setProfileMissing(true);
@@ -665,6 +684,7 @@ export const AuthProvider = ({ children }) => {
       );
 
       if (error) throw error;
+      syncAvatarSignedUrlCacheScope(data?.session || null);
 
       if (data.user) {
         setHasSession(true);
@@ -686,6 +706,7 @@ export const AuthProvider = ({ children }) => {
         supabase.auth.signOut()
       );
       if (error) throw error;
+      clearAvatarSignedUrlCache();
       
       setUser(null);
       setSession(null);
@@ -761,6 +782,7 @@ export const AuthProvider = ({ children }) => {
   // Initialize auth state
   useEffect(() => {
     sessionRef.current = session;
+    syncAvatarSignedUrlCacheScope(session);
   }, [session]);
 
   useEffect(() => {
@@ -779,6 +801,7 @@ export const AuthProvider = ({ children }) => {
       if (!isMountedRef.current) return;
 
       if (event === 'SIGNED_OUT') {
+        clearAvatarSignedUrlCache();
         setSession(null);
         setUser(null);
         setProfile(null);

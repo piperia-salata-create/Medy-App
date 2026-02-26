@@ -7,8 +7,11 @@ import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Tabs, TabsList, TabsTrigger } from '../../components/ui/tabs';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../components/ui/dialog';
+import { Checkbox } from '../../components/ui/checkbox';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../../components/ui/dropdown-menu';
 import { EmptyState } from '../../components/ui/empty-states';
-import { ArrowLeft, Inbox, CheckCircle2, XCircle, Clock, Search, Info } from 'lucide-react';
+import { ArrowLeft, Inbox, CheckCircle2, XCircle, Clock, Search, Info, MoreVertical } from 'lucide-react';
 import { toast } from 'sonner';
 
 const isDev = process.env.NODE_ENV !== 'production';
@@ -55,6 +58,32 @@ const TXT = {
   }
 };
 
+TXT.el.reportNoShowAction = '\u0391\u03bd\u03b1\u03c6\u03bf\u03c1\u03ac \u03bc\u03b7 \u03b5\u03bc\u03c6\u03ac\u03bd\u03b9\u03c3\u03b7\u03c2';
+TXT.el.reportNoShowAlready = '\u0388\u03c7\u03b5\u03b9 \u03ae\u03b4\u03b7 \u03b1\u03bd\u03b1\u03c6\u03b5\u03c1\u03b8\u03b5\u03af';
+TXT.el.reportNoShowNoActions = '\u0394\u03b5\u03bd \u03c5\u03c0\u03ac\u03c1\u03c7\u03bf\u03c5\u03bd \u03b4\u03b9\u03b1\u03b8\u03ad\u03c3\u03b9\u03bc\u03b5\u03c2 \u03b5\u03bd\u03ad\u03c1\u03b3\u03b5\u03b9\u03b5\u03c2';
+TXT.el.reportNoShowTitle = '\u0391\u03bd\u03b1\u03c6\u03bf\u03c1\u03ac \u039c\u03b7 \u0395\u03bc\u03c6\u03ac\u03bd\u03b9\u03c3\u03b7\u03c2';
+TXT.el.reportNoShowBody = '\u0394\u03b7\u03bb\u03ce\u03bd\u03b5\u03c4\u03b5 \u03cc\u03c4\u03b9 \u03bf \u03b1\u03c3\u03b8\u03b5\u03bd\u03ae\u03c2 \u03b4\u03b5\u03bd \u03c0\u03c1\u03bf\u03c3\u03ae\u03bb\u03b8\u03b5 \u03b3\u03b9\u03b1 \u03c4\u03b7\u03bd \u03c0\u03b1\u03c1\u03b1\u03bb\u03b1\u03b2\u03ae \u03c4\u03bf\u03c5 \u03b1\u03b9\u03c4\u03ae\u03bc\u03b1\u03c4\u03bf\u03c2. \u0397 \u03b5\u03bd\u03ad\u03c1\u03b3\u03b5\u03b9\u03b1 \u03b1\u03c5\u03c4\u03ae \u03b8\u03b1 \u03ba\u03b1\u03c4\u03b1\u03b3\u03c1\u03b1\u03c6\u03b5\u03af.';
+TXT.el.reportNoShowConfirmLabel = '\u0395\u03c0\u03b9\u03b2\u03b5\u03b2\u03b1\u03b9\u03ce\u03bd\u03c9 \u03cc\u03c4\u03b9 \u03bf \u03b1\u03c3\u03b8\u03b5\u03bd\u03ae\u03c2 \u03b4\u03b5\u03bd \u03b5\u03bc\u03c6\u03b1\u03bd\u03af\u03c3\u03c4\u03b7\u03ba\u03b5.';
+TXT.el.reportNoShowSubmit = '\u039a\u03b1\u03c4\u03b1\u03c7\u03ce\u03c1\u03b7\u03c3\u03b7 \u0391\u03bd\u03b1\u03c6\u03bf\u03c1\u03ac\u03c2';
+TXT.el.reportNoShowSubmitting = '\u039a\u03b1\u03c4\u03b1\u03c7\u03ce\u03c1\u03b7\u03c3\u03b7...';
+TXT.el.reportNoShowSuccess = '\u0397 \u03b1\u03bd\u03b1\u03c6\u03bf\u03c1\u03ac \u03ba\u03b1\u03c4\u03b1\u03c7\u03c9\u03c1\u03ae\u03b8\u03b7\u03ba\u03b5.';
+TXT.el.reportNoShowAlreadyToast = '\u0397 \u03b1\u03bd\u03b1\u03c6\u03bf\u03c1\u03ac \u03c5\u03c0\u03ac\u03c1\u03c7\u03b5\u03b9 \u03ae\u03b4\u03b7.';
+TXT.el.reportNoShowNotAllowedToast = '\u0394\u03b5\u03bd \u03b5\u03c0\u03b9\u03c4\u03c1\u03ad\u03c0\u03b5\u03c4\u03b1\u03b9 \u03b7 \u03b1\u03bd\u03b1\u03c6\u03bf\u03c1\u03ac \u03b3\u03b9\u03b1 \u03c4\u03bf \u03c3\u03c5\u03b3\u03ba\u03b5\u03ba\u03c1\u03b9\u03bc\u03ad\u03bd\u03bf \u03b1\u03af\u03c4\u03b7\u03bc\u03b1.';
+TXT.el.reportNoShowFailedToast = '\u0391\u03c0\u03bf\u03c4\u03c5\u03c7\u03af\u03b1 \u03ba\u03b1\u03c4\u03b1\u03c7\u03ce\u03c1\u03b7\u03c3\u03b7\u03c2 \u03b1\u03bd\u03b1\u03c6\u03bf\u03c1\u03ac\u03c2.';
+
+TXT.en.reportNoShowAction = 'Report no-show';
+TXT.en.reportNoShowAlready = 'Already reported';
+TXT.en.reportNoShowNoActions = 'No available actions';
+TXT.en.reportNoShowTitle = 'Report No-Show';
+TXT.en.reportNoShowBody = 'You declare that the patient did not appear to collect this request. This action will be recorded.';
+TXT.en.reportNoShowConfirmLabel = 'I confirm that the patient did not appear.';
+TXT.en.reportNoShowSubmit = 'Submit Report';
+TXT.en.reportNoShowSubmitting = 'Submitting...';
+TXT.en.reportNoShowSuccess = 'Report submitted.';
+TXT.en.reportNoShowAlreadyToast = 'Report already submitted.';
+TXT.en.reportNoShowNotAllowedToast = 'Reporting is not allowed for this request.';
+TXT.en.reportNoShowFailedToast = 'Failed to submit report.';
+
 const areRequestsEqual = (prevList = [], nextList = []) => {
   if (prevList === nextList) return true;
   if (prevList.length !== nextList.length) return false;
@@ -93,6 +122,11 @@ export default function PharmacistPatientRequestsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [respondingId, setRespondingId] = useState(null);
   const [executingId, setExecutingId] = useState(null);
+  const [reportedRequestIds, setReportedRequestIds] = useState({});
+  const [reportDialogOpen, setReportDialogOpen] = useState(false);
+  const [reportConfirmationChecked, setReportConfirmationChecked] = useState(false);
+  const [pendingReportRequestId, setPendingReportRequestId] = useState(null);
+  const [reportingRequestId, setReportingRequestId] = useState(null);
   const [patientDetailsByRequest, setPatientDetailsByRequest] = useState({});
   const hasLoadedRequestsRef = useRef(false);
   const requestsRef = useRef([]);
@@ -107,11 +141,19 @@ export default function PharmacistPatientRequestsPage() {
     hasLoadedRequestsRef.current = false;
     setLoading(true);
     setRefreshing(false);
+    setReportedRequestIds({});
   }, [pharmacyId, userId]);
 
   useEffect(() => {
     requestsRef.current = requests;
   }, [requests]);
+
+  useEffect(() => {
+    if (!reportDialogOpen) {
+      setReportConfirmationChecked(false);
+      setPendingReportRequestId(null);
+    }
+  }, [reportDialogOpen]);
 
   const fetchPharmacy = useCallback(async () => {
     if (!userId) return null;
@@ -238,6 +280,41 @@ export default function PharmacistPatientRequestsPage() {
     }
   }, [language]);
 
+  const fetchReportedRequests = useCallback(async (requestItems = []) => {
+    if (!userId) {
+      setReportedRequestIds({});
+      return;
+    }
+
+    const requestIds = Array.from(
+      new Set((requestItems || []).map((item) => item?.request?.id).filter(Boolean))
+    );
+
+    if (requestIds.length === 0) {
+      setReportedRequestIds({});
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('patient_no_show_reports')
+        .select('request_id')
+        .eq('pharmacist_id', userId)
+        .in('request_id', requestIds);
+
+      if (error) throw error;
+
+      const next = {};
+      (data || []).forEach((row) => {
+        if (!row?.request_id) return;
+        next[row.request_id] = true;
+      });
+      setReportedRequestIds(next);
+    } catch (error) {
+      console.error('Error loading no-show report status:', error);
+    }
+  }, [userId]);
+
   const fetchPatientDetails = useCallback(async (requestId, pharmacyId) => {
     if (!requestId || !pharmacyId) return;
     try {
@@ -303,6 +380,10 @@ export default function PharmacistPatientRequestsPage() {
       supabase.removeChannel(channel);
     };
   }, [pharmacyId, fetchRequests]);
+
+  useEffect(() => {
+    fetchReportedRequests(requests);
+  }, [requests, fetchReportedRequests]);
 
   const getStatusInfo = useCallback((recipient) => {
     const request = recipient?.request || {};
@@ -539,6 +620,59 @@ export default function PharmacistPatientRequestsPage() {
     }
   };
 
+  const openNoShowReportDialog = (requestId) => {
+    if (!requestId) return;
+    setPendingReportRequestId(requestId);
+    setReportConfirmationChecked(false);
+    setReportDialogOpen(true);
+  };
+
+  const submitNoShowReport = async () => {
+    if (!pendingReportRequestId || !pharmacy?.id) return;
+    if (reportingRequestId) return;
+
+    setReportingRequestId(pendingReportRequestId);
+    try {
+      const { data, error } = await supabase.rpc('report_patient_no_show', {
+        p_request_id: pendingReportRequestId
+      });
+
+      if (error) throw error;
+
+      const payload = Array.isArray(data) ? data[0] : data;
+      const status = payload?.status || 'not_allowed';
+
+      if (status === 'ok') {
+        toast.success(t('reportNoShowSuccess'));
+        setReportedRequestIds((prev) => ({
+          ...prev,
+          [pendingReportRequestId]: true
+        }));
+        setReportDialogOpen(false);
+        fetchRequests(pharmacy);
+        return;
+      }
+
+      if (status === 'already_reported') {
+        toast.success(t('reportNoShowAlreadyToast'));
+        setReportedRequestIds((prev) => ({
+          ...prev,
+          [pendingReportRequestId]: true
+        }));
+        setReportDialogOpen(false);
+        return;
+      }
+
+      toast.error(t('reportNoShowNotAllowedToast'));
+      setReportDialogOpen(false);
+    } catch (error) {
+      console.error('Error reporting no-show:', error);
+      toast.error(t('reportNoShowFailedToast'));
+    } finally {
+      setReportingRequestId(null);
+    }
+  };
+
   if (!isPharmacist()) {
     return null;
   }
@@ -649,6 +783,7 @@ export default function PharmacistPatientRequestsPage() {
                   <div className="space-y-3">
                 {filteredRequests.map((item) => {
                   const request = item?.request || {};
+                  const requestId = request?.id || null;
                   const statusInfo = item.statusInfo || getStatusInfo(item);
                   const historyStatusInfo = getHistoryStatusInfo(item);
                   const canRespond = statusInfo.key === STATUS_KEYS.pending;
@@ -658,11 +793,17 @@ export default function PharmacistPatientRequestsPage() {
                   const canExecute = statusInfo.key === STATUS_KEYS.accepted
                     && selectedByPatient
                     && request?.status === STATUS_KEYS.accepted;
-                  const showExecuteDisclaimer = canExecute && executingId !== request?.id;
+                  const showExecuteDisclaimer = canExecute && executingId !== requestId;
                   const canViewPatientDetails = item?.status === 'accepted'
                     && request?.selected_pharmacy_id === pharmacy?.id;
+                  const expiresAtMs = request?.expires_at ? new Date(request.expires_at).getTime() : null;
+                  const isExpiredRequest = expiresAtMs ? Date.now() > expiresAtMs : false;
+                  const alreadyReported = Boolean(requestId && reportedRequestIds[requestId]);
+                  const showReportAction = item?.status === STATUS_KEYS.accepted
+                    && request?.status === STATUS_KEYS.accepted
+                    && isExpiredRequest;
                   const patientDetails = canViewPatientDetails
-                    ? patientDetailsByRequest[request?.id]
+                    ? patientDetailsByRequest[requestId]
                     : null;
                   const patientName = patientDetails?.patient_full_name
                     || patientDetails?.full_name
@@ -725,6 +866,38 @@ export default function PharmacistPatientRequestsPage() {
                             <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${isCancelledExpired ? historyStatusInfo.className : statusInfo.className}`}>
                               {isCancelledExpired ? historyStatusInfo.label : statusInfo.label}
                             </span>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 rounded-full p-0"
+                                  aria-label={language === 'el' ? '\u0395\u03bd\u03ad\u03c1\u03b3\u03b5\u03b9\u03b5\u03c2 \u03b1\u03b9\u03c4\u03ae\u03bc\u03b1\u03c4\u03bf\u03c2' : 'Request actions'}
+                                  data-testid={`request-actions-menu-${item.id}`}
+                                >
+                                  <MoreVertical className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-56">
+                                {showReportAction ? (
+                                  <DropdownMenuItem
+                                    disabled={alreadyReported || reportingRequestId === requestId}
+                                    onSelect={(event) => {
+                                      event.preventDefault();
+                                      if (alreadyReported) return;
+                                      openNoShowReportDialog(requestId);
+                                    }}
+                                    data-testid={`report-no-show-action-${requestId || item.id}`}
+                                  >
+                                    {alreadyReported ? t('reportNoShowAlready') : t('reportNoShowAction')}
+                                  </DropdownMenuItem>
+                                ) : (
+                                  <DropdownMenuItem disabled>
+                                    {t('reportNoShowNoActions')}
+                                  </DropdownMenuItem>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
                         </div>
 
@@ -825,11 +998,11 @@ export default function PharmacistPatientRequestsPage() {
                             <Button
                               size="sm"
                               className="rounded-full bg-pharma-teal hover:bg-pharma-teal/90 gap-1"
-                              onClick={() => markRequestExecuted(request?.id)}
-                              disabled={executingId === request?.id}
-                              data-testid={`execute-request-${request?.id}`}
+                              onClick={() => markRequestExecuted(requestId)}
+                              disabled={executingId === requestId}
+                              data-testid={`execute-request-${requestId}`}
                             >
-                              {executingId === request?.id
+                              {executingId === requestId
                                 ? (language === 'el' ? '\u0395\u03ba\u03c4\u03ad\u03bb\u03b5\u03c3\u03b7...' : 'Executing...')
                                 : t('markExecuted')}
                             </Button>
@@ -861,6 +1034,53 @@ export default function PharmacistPatientRequestsPage() {
           </CardContent>
         </Card>
       </main>
+
+      <Dialog open={reportDialogOpen} onOpenChange={setReportDialogOpen}>
+        <DialogContent className="bg-white rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="font-heading text-xl text-pharma-dark-slate">
+              {t('reportNoShowTitle')}
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              {t('reportNoShowBody')}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm leading-relaxed text-pharma-charcoal">
+              {t('reportNoShowBody')}
+            </p>
+            <label
+              htmlFor="report-no-show-confirm"
+              className="flex items-center gap-3 pt-1 text-sm text-pharma-charcoal cursor-pointer"
+            >
+              <Checkbox
+                id="report-no-show-confirm"
+                checked={reportConfirmationChecked}
+                onCheckedChange={(checked) => setReportConfirmationChecked(checked === true)}
+                data-testid="report-no-show-confirm-checkbox"
+              />
+              <span>{t('reportNoShowConfirmLabel')}</span>
+            </label>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="rounded-full"
+              onClick={() => setReportDialogOpen(false)}
+            >
+              {language === 'el' ? '\u0391\u03ba\u03cd\u03c1\u03c9\u03c3\u03b7' : 'Cancel'}
+            </Button>
+            <Button
+              className="rounded-full bg-pharma-teal hover:bg-pharma-teal/90"
+              onClick={submitNoShowReport}
+              disabled={!reportConfirmationChecked || Boolean(reportingRequestId)}
+              data-testid="report-no-show-submit-btn"
+            >
+              {reportingRequestId ? t('reportNoShowSubmitting') : t('reportNoShowSubmit')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

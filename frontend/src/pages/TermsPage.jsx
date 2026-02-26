@@ -36,7 +36,13 @@ const termsCopy = {
         heading: '4. Υποχρεώσεις χρήστη',
         paragraphs: [
           'Ο χρήστης οφείλει να παρέχει ακριβείς πληροφορίες και να μην κάνει καταχρηστική χρήση της υπηρεσίας.',
-          'Απαγορεύεται η χρήση της υπηρεσίας για παράνομες ή κακόβουλες ενέργειες.'
+          'Απαγορεύεται η χρήση της υπηρεσίας για παράνομες ή κακόβουλες ενέργειες.',
+          'Ο χρήστης υποχρεούται να χρησιμοποιεί την πλατφόρμα με καλή πίστη και υπευθυνότητα.',
+          'Με την υποβολή αιτήματος προς φαρμακείο:',
+          'Δηλώνει ότι προτίθεται να μεταβεί για εξυπηρέτηση.',
+          'Οφείλει να ενημερώσει ή να ακυρώσει το αίτημα σε περίπτωση αδυναμίας προσέλευσης.',
+          'Σε περίπτωση επανειλημμένης μη εμφάνισης, το φαρμακείο δύναται να επισημάνει το αίτημα ως μη εξυπηρετηθέν.',
+          'Σε περίπτωση τριών (3) επισημάνσεων για μη εμφάνιση, η πλατφόρμα διατηρεί το δικαίωμα προσωρινής αναστολής του λογαριασμού για χρονικό διάστημα έως τριάντα (30) ημερών.'
         ]
       },
       {
@@ -50,7 +56,13 @@ const termsCopy = {
         heading: '6. Περιορισμός ευθύνης',
         paragraphs: [
           'Το Medy δεν ευθύνεται για άμεσες ή έμμεσες ζημίες από τη χρήση ή αδυναμία χρήσης της υπηρεσίας.',
-          'Η τελική επιβεβαίωση διαθεσιμότητας και εκτέλεσης παραμένει ευθύνη του φαρμακείου και του χρήστη.'
+          'Η τελική επιβεβαίωση διαθεσιμότητας και εκτέλεσης παραμένει ευθύνη του φαρμακείου και του χρήστη.',
+          'Η Medy δεν εγγυάται τη διαθεσιμότητα φαρμάκων.',
+          'Η Medy δεν συμμετέχει στη φυσική διάθεση προϊόντων.',
+          'Η Medy δεν υποκαθιστά ιατρική συμβουλή, διάγνωση ή θεραπεία.',
+          'Η Medy δεν φέρει ευθύνη για αποφάσεις που λαμβάνονται αποκλειστικά βάσει πληροφοριών της πλατφόρμας.',
+          'Η διαδικασία επισημάνσεων (reports) αξιολογείται βάσει εσωτερικών κριτηρίων της πλατφόρμας.',
+          'Η Medy διατηρεί το δικαίωμα τελικής κρίσης ως προς την επιβολή περιορισμών.'
         ]
       },
       {
@@ -58,6 +70,13 @@ const termsCopy = {
         paragraphs: [
           'Για τεχνικά ζητήματα χρησιμοποιήστε τη φόρμα "Αναφορά Σφάλματος".',
           'Θα εξετάζουμε κάθε αναφορά και θα προχωρούμε σε διορθωτικές ενέργειες όπου απαιτείται.'
+        ]
+      },
+      {
+        heading: '8. Καταχρηστική Χρήση',
+        paragraphs: [
+          'Απαγορεύεται η υποβολή ψευδών, παραπλανητικών ή κακόβουλων αιτημάτων.',
+          'Η Medy διατηρεί το δικαίωμα περιορισμού, προσωρινής αναστολής ή οριστικής διαγραφής λογαριασμού σε περίπτωση κατάχρησης της υπηρεσίας.'
         ]
       }
     ]
@@ -92,7 +111,13 @@ const termsCopy = {
         heading: '4. User obligations',
         paragraphs: [
           'Users must provide accurate information and avoid abusive use of the service.',
-          'Illegal or malicious use of the platform is strictly prohibited.'
+          'Illegal or malicious use of the platform is strictly prohibited.',
+          'Users are required to use the platform in good faith and responsibly.',
+          'By submitting a request to a pharmacy:',
+          'You declare that you intend to visit for service.',
+          'You must update or cancel the request if you are unable to attend.',
+          'In case of repeated no-shows, the pharmacy may mark the request as not served.',
+          'In case of three (3) no-show flags, the platform reserves the right to temporarily suspend the account for up to thirty (30) days.'
         ]
       },
       {
@@ -106,7 +131,13 @@ const termsCopy = {
         heading: '6. Limitation of liability',
         paragraphs: [
           'Medy is not liable for direct or indirect damages arising from the use or inability to use the service.',
-          'Final confirmation of availability and fulfillment remains the responsibility of the pharmacy and the user.'
+          'Final confirmation of availability and fulfillment remains the responsibility of the pharmacy and the user.',
+          'Medy does not guarantee the availability of medicines.',
+          'Medy does not participate in the physical dispensing of products.',
+          'Medy does not replace medical advice, diagnosis, or treatment.',
+          'Medy is not responsible for decisions made exclusively based on information provided by the platform.',
+          'The reporting process is evaluated based on the platform\'s internal criteria.',
+          'Medy reserves the right of final judgment regarding the imposition of restrictions.'
         ]
       },
       {
@@ -114,6 +145,13 @@ const termsCopy = {
         paragraphs: [
           'For technical issues, use the "Report a Bug" form.',
           'We review each report and apply corrective actions when needed.'
+        ]
+      },
+      {
+        heading: '8. Abusive Use',
+        paragraphs: [
+          'Submitting false, misleading, or malicious requests is prohibited.',
+          'Medy reserves the right to limit, temporarily suspend, or permanently delete an account in cases of service abuse.'
         ]
       }
     ]
@@ -169,4 +207,3 @@ export default function TermsPage() {
     </div>
   );
 }
-

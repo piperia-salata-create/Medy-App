@@ -2,6 +2,7 @@ import React, { Suspense, lazy, memo, useEffect } from 'react';
 import "@/App.css";
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
 import ToastHost from "./components/ToastHost";
+import ConsentBanner from "./components/ConsentBanner";
 import { PwaInstallProvider } from "./hooks/usePwaInstall";
 
 // Contexts
@@ -9,8 +10,10 @@ import { LanguageProvider } from "./contexts/LanguageContext";
 import { AuthProvider, useAuthSession, useProfileState } from "./contexts/AuthContext";
 import { SeniorModeProvider } from "./contexts/SeniorModeContext";
 import { NotificationProvider } from "./contexts/NotificationContext";
+import { TutorialProvider } from "./contexts/TutorialContext";
 import { supabase } from "./lib/supabase";
 import { PHARMACY_PRESENCE_HEARTBEAT_MS } from "./lib/pharmacyPresence";
+import { hasAnalyticsConsent, hasMarketingConsent } from "./lib/consent";
 
 // Pages
 const LandingPage = lazy(() => import("./pages/LandingPage"));
@@ -560,6 +563,15 @@ function AppRoutes() {
 
 function App() {
   // Analytics and Emergent artifacts removed - no external runtime tooling
+  useEffect(() => {
+    if (hasAnalyticsConsent()) {
+      // Future hook: initialize analytics only after explicit analytics consent.
+    }
+
+    if (hasMarketingConsent()) {
+      // Future hook: initialize marketing pixels only after explicit marketing consent.
+    }
+  }, []);
 
   return (
     <BrowserRouter>
@@ -568,10 +580,13 @@ function App() {
           <SeniorModeProvider>
             <NotificationProvider>
               <PwaInstallProvider>
-                <div className="App">
-                  <AppRoutes />
-                  <ToastHost />
-                </div>
+                <TutorialProvider>
+                  <div className="App">
+                    <AppRoutes />
+                    <ToastHost />
+                    <ConsentBanner />
+                  </div>
+                </TutorialProvider>
               </PwaInstallProvider>
             </NotificationProvider>
           </SeniorModeProvider>

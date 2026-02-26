@@ -82,6 +82,10 @@ const translations = {
     demandSignals: 'Σήματα Ζήτησης',
     analytics: 'Αναλυτικά',
     interPharmacy: 'Διαφαρμακευτική Επικοινωνία',
+    dashboardAvailabilityDisclaimer: 'Οι πληροφορίες διαθεσιμότητας βασίζονται σε δηλώσεις χρηστών και ενδέχεται να μεταβληθούν. Η τελική επιβεβαίωση γίνεται από το φαρμακείο.',
+    interPharmacyDisclaimerLine1: 'Οι ανταλλαγές πραγματοποιούνται απευθείας μεταξύ φαρμακείων.',
+    interPharmacyDisclaimerLine2: 'Η Medy δεν συμμετέχει στη μεταφορά, πληρωμή ή φυσική παράδοση προϊόντων.',
+    connectionsDisclaimer: 'Οι συνδέσεις αφορούν επαγγελματίες φαρμακοποιούς. Η ευθύνη της επικοινωνίας και συνεργασίας παραμένει στα συνδεδεμένα μέρη.',
     
     // Pharmacist Verification
     pendingVerification: 'Εκκρεμεί Επαλήθευση',
@@ -98,6 +102,21 @@ const translations = {
     seniorModeDesc: 'Προαιρετικό - Μεγαλύτερο κείμενο και βελτιωμένη αναγνωσιμότητα',
     pushNotifications: 'Ειδοποιήσεις Push',
     pushNotificationsNote: 'Οι ειδοποιήσεις push όταν η εφαρμογή είναι κλειστή απαιτούν μελλοντική έκδοση από το Store.',
+    privacySettings: 'Ρυθμίσεις απορρήτου',
+    privacySettingsTitle: 'Ρυθμίσεις Απορρήτου',
+    privacySettingsBannerLine1: 'Χρησιμοποιούμε τα απολύτως απαραίτητα cookies για τη λειτουργία της εφαρμογής.',
+    privacySettingsBannerLine2: 'Μπορείτε να επιλέξετε αν επιτρέπετε προαιρετικά cookies για στατιστικά και βελτιώσεις (όταν ενεργοποιηθούν).',
+    privacySettingsTermsLink: 'Όροι Χρήσης',
+    privacySettingsPolicyLink: 'Πολιτική Απορρήτου',
+    privacySettingsAcceptAll: 'Αποδοχή όλων',
+    privacySettingsOnlyNecessary: 'Μόνο απαραίτητα',
+    privacySettingsConfigure: 'Ρυθμίσεις',
+    privacySettingsNecessaryLabel: 'Απαραίτητα',
+    privacySettingsNecessaryHelp: 'Απαραίτητα για λειτουργία',
+    privacySettingsAnalyticsLabel: 'Analytics',
+    privacySettingsAnalyticsHelp: 'Στατιστικά χρήσης για βελτιώσεις',
+    privacySettingsMarketingLabel: 'Marketing',
+    privacySettingsMarketingHelp: 'Προσωποποιημένο περιεχόμενο/προωθητικές ενέργειες (αν χρησιμοποιηθούν)',
     
     // Notifications
     notificationCenter: 'Κέντρο Ειδοποιήσεων',
@@ -205,6 +224,11 @@ const translations = {
     requestCancelling: '\u0391\u03ba\u03cd\u03c1\u03c9\u03c3\u03b7...',
     requestSignInRequired: '\u03a3\u03c5\u03bd\u03b4\u03b5\u03b8\u03b5\u03af\u03c4\u03b5 \u03b3\u03b9\u03b1 \u03bd\u03b1 \u03c3\u03c4\u03b5\u03af\u03bb\u03b5\u03c4\u03b5 \u03b1\u03af\u03c4\u03b7\u03bc\u03b1',
     requestMedicineRequired: '\u03a3\u03c5\u03bc\u03c0\u03bb\u03b7\u03c1\u03ce\u03c3\u03c4\u03b5 \u03c4\u03bf \u03cc\u03bd\u03bf\u03bc\u03b1 \u03c6\u03b1\u03c1\u03bc\u03ac\u03ba\u03bf\u03c5',
+    requestSubmitWarningTitle: 'Σημαντική Ενημέρωση',
+    requestSubmitWarningLine1: 'Εάν υποβάλετε αίτημα και δεν μεταβείτε στο φαρμακείο για παραλαβή, ο φαρμακοποιός μπορεί να το επισημάνει ως μη εξυπηρετηθέν.',
+    requestSubmitWarningLine2: 'Σε περίπτωση τριών (3) αναφορών για μη εμφάνιση, ο λογαριασμός σας ενδέχεται να ανασταλεί προσωρινά για έως και 30 ημέρες.',
+    requestSubmitWarningSkip: 'Να μην ερωτηθώ ξανά',
+    requestSubmitWarningContinue: 'Συνέχεια & Αποστολή',
     pharmacy: '\u03a6\u03b1\u03c1\u03bc\u03b1\u03ba\u03b5\u03af\u03bf',
 
     
@@ -306,6 +330,10 @@ const translations = {
     demandSignals: 'Demand Signals',
     analytics: 'Analytics',
     interPharmacy: 'Inter-Pharmacy Communication',
+    dashboardAvailabilityDisclaimer: 'Availability information is based on user declarations and may change. Final confirmation is provided by the pharmacy.',
+    interPharmacyDisclaimerLine1: 'Exchanges are carried out directly between pharmacies.',
+    interPharmacyDisclaimerLine2: 'Medy does not participate in transfer, payment, or physical delivery of products.',
+    connectionsDisclaimer: 'Connections are between professional pharmacists. Responsibility for communication and collaboration remains with the connected parties.',
     
     // Pharmacist Verification
     pendingVerification: 'Pending Verification',
@@ -322,6 +350,21 @@ const translations = {
     seniorModeDesc: 'Optional - Larger text and improved readability',
     pushNotifications: 'Push Notifications',
     pushNotificationsNote: 'Push notifications when the app is closed require a future Store app version.',
+    privacySettings: 'Privacy settings',
+    privacySettingsTitle: 'Privacy Settings',
+    privacySettingsBannerLine1: 'We use strictly necessary cookies for the app to function.',
+    privacySettingsBannerLine2: 'You can choose whether to allow optional cookies for usage statistics and improvements (when they are enabled).',
+    privacySettingsTermsLink: 'Terms of Use',
+    privacySettingsPolicyLink: 'Privacy Policy',
+    privacySettingsAcceptAll: 'Accept all',
+    privacySettingsOnlyNecessary: 'Only necessary',
+    privacySettingsConfigure: 'Settings',
+    privacySettingsNecessaryLabel: 'Necessary',
+    privacySettingsNecessaryHelp: 'Required for core functionality',
+    privacySettingsAnalyticsLabel: 'Analytics',
+    privacySettingsAnalyticsHelp: 'Usage statistics to improve the service',
+    privacySettingsMarketingLabel: 'Marketing',
+    privacySettingsMarketingHelp: 'Personalized content/promotional actions (if used)',
     
     // Notifications
     notificationCenter: 'Notification Center',
@@ -429,6 +472,11 @@ const translations = {
     requestCancelling: 'Cancelling...',
     requestSignInRequired: 'Sign in to send a request',
     requestMedicineRequired: 'Enter a medicine name',
+    requestSubmitWarningTitle: 'Important Notice',
+    requestSubmitWarningLine1: 'If you submit a request and do not visit the pharmacy for pickup, the pharmacist may mark it as not served.',
+    requestSubmitWarningLine2: 'In case of three (3) no-show reports, your account may be temporarily suspended for up to 30 days.',
+    requestSubmitWarningSkip: 'Do not ask me again',
+    requestSubmitWarningContinue: 'Continue & Submit',
     pharmacy: 'Pharmacy',
 
     
@@ -451,6 +499,76 @@ const translations = {
     installStepIosDesc: 'Share icon → Add to Home Screen.',
   }
 };
+
+translations.el.requestNoShowSoftWarningLine1 = '\u0388\u03c7\u03b5\u03c4\u03b5 2 \u03b1\u03bd\u03b1\u03c6\u03bf\u03c1\u03ad\u03c2 \u03b3\u03b9\u03b1 \u03bc\u03b7 \u03b5\u03bc\u03c6\u03ac\u03bd\u03b9\u03c3\u03b7 \u03c4\u03b9\u03c2 \u03c4\u03b5\u03bb\u03b5\u03c5\u03c4\u03b1\u03af\u03b5\u03c2 30 \u03b7\u03bc\u03ad\u03c1\u03b5\u03c2.';
+translations.el.requestNoShowSoftWarningLine2 = '\u03a3\u03b5 \u03c0\u03b5\u03c1\u03af\u03c0\u03c4\u03c9\u03c3\u03b7 3\u03b7\u03c2 \u03b1\u03bd\u03b1\u03c6\u03bf\u03c1\u03ac\u03c2, \u03bf \u03bb\u03bf\u03b3\u03b1\u03c1\u03b9\u03b1\u03c3\u03bc\u03cc\u03c2 \u03c3\u03b1\u03c2 \u03bc\u03c0\u03bf\u03c1\u03b5\u03af \u03bd\u03b1 \u03c4\u03b5\u03b8\u03b5\u03af \u03c3\u03b5 \u03b1\u03bd\u03b1\u03c3\u03c4\u03bf\u03bb\u03ae \u03b3\u03b9\u03b1 30 \u03b7\u03bc\u03ad\u03c1\u03b5\u03c2.';
+translations.el.requestNoShowSoftWarningTermsLink = '\u0394\u03b5\u03af\u03c4\u03b5 \u03c4\u03bf\u03c5\u03c2 \u038c\u03c1\u03bf\u03c5\u03c2 \u03a7\u03c1\u03ae\u03c3\u03b7\u03c2';
+translations.el.requestSuspendedTitle = '\u039f \u03bb\u03bf\u03b3\u03b1\u03c1\u03b9\u03b1\u03c3\u03bc\u03cc\u03c2 \u03c3\u03b1\u03c2 \u03b5\u03af\u03bd\u03b1\u03b9 \u03c0\u03c1\u03bf\u03c3\u03c9\u03c1\u03b9\u03bd\u03ac \u03c3\u03b5 \u03b1\u03bd\u03b1\u03c3\u03c4\u03bf\u03bb\u03ae';
+translations.el.requestSuspendedBodyLine1 = '\u039f \u03bb\u03bf\u03b3\u03b1\u03c1\u03b9\u03b1\u03c3\u03bc\u03cc\u03c2 \u03c3\u03b1\u03c2 \u03ad\u03c7\u03b5\u03b9 \u03c4\u03b5\u03b8\u03b5\u03af \u03c3\u03b5 \u03c0\u03c1\u03bf\u03c3\u03c9\u03c1\u03b9\u03bd\u03ae \u03b1\u03bd\u03b1\u03c3\u03c4\u03bf\u03bb\u03ae \u03bb\u03cc\u03b3\u03c9 \u03b5\u03c0\u03b1\u03bd\u03b5\u03b9\u03bb\u03b7\u03bc\u03bc\u03ad\u03bd\u03c9\u03bd \u03bc\u03b7 \u03b5\u03bc\u03c6\u03b1\u03bd\u03af\u03c3\u03b5\u03c9\u03bd.';
+translations.el.requestSuspendedBodyLine2 = '\u0397 \u03c0\u03c1\u03cc\u03c3\u03b2\u03b1\u03c3\u03b7 \u03b8\u03b1 \u03b1\u03c0\u03bf\u03ba\u03b1\u03c4\u03b1\u03c3\u03c4\u03b1\u03b8\u03b5\u03af \u03c3\u03c4\u03b9\u03c2: {date}';
+translations.el.requestSuspendedInlineHint = '\u0397 \u03b1\u03c0\u03bf\u03c3\u03c4\u03bf\u03bb\u03ae \u03b1\u03b9\u03c4\u03ae\u03bc\u03b1\u03c4\u03bf\u03c2 \u03ad\u03c7\u03b5\u03b9 \u03b1\u03c0\u03b5\u03bd\u03b5\u03c1\u03b3\u03bf\u03c0\u03bf\u03b9\u03b7\u03b8\u03b5\u03af \u03cc\u03c3\u03bf \u03b9\u03c3\u03c7\u03cd\u03b5\u03b9 \u03b7 \u03b1\u03bd\u03b1\u03c3\u03c4\u03bf\u03bb\u03ae.';
+
+translations.en.requestNoShowSoftWarningLine1 = 'You have 2 no-show reports in the last 30 days.';
+translations.en.requestNoShowSoftWarningLine2 = 'If a 3rd report is recorded, your account may be suspended for 30 days.';
+translations.en.requestNoShowSoftWarningTermsLink = 'View Terms of Use';
+translations.en.requestSuspendedTitle = 'Account temporarily suspended';
+translations.en.requestSuspendedBodyLine1 = 'Your account has been temporarily suspended due to repeated no-shows.';
+translations.en.requestSuspendedBodyLine2 = 'Access will be restored on: {date}';
+translations.en.requestSuspendedInlineHint = 'Request submission is disabled while the suspension is active.';
+
+translations.el.tutorialSkip = 'Παράλειψη';
+translations.el.tutorialDone = 'Ολοκλήρωση';
+translations.el.replayTutorial = 'Εμφάνιση Tutorial';
+translations.el.replayTutorialHelp = 'Δείτε ξανά μια σύντομη περιήγηση της εφαρμογής.';
+translations.el['tutorial.patient.search.title'] = 'Αναζήτηση';
+translations.el['tutorial.patient.search.body'] = 'Γράψε όνομα ή δραστική ουσία για να βρεις το προϊόν που χρειάζεσαι.';
+translations.el['tutorial.patient.nearMe.title'] = 'Κοντά σου';
+translations.el['tutorial.patient.nearMe.body'] = 'Φίλτραρε τα αποτελέσματα με βάση την περιοχή ή την απόσταση.';
+translations.el['tutorial.patient.availability.title'] = 'Διαθεσιμότητα';
+translations.el['tutorial.patient.availability.body'] = 'Οι ενδείξεις μπορεί να αλλάξουν. Πριν πας, επιβεβαίωσε με το φαρμακείο.';
+translations.el['tutorial.patient.request.title'] = 'Αίτημα';
+translations.el['tutorial.patient.request.body'] = 'Στείλε αίτημα στο φαρμακείο για να οργανώσεις την παραλαβή.';
+translations.el['tutorial.patient.settings.title'] = 'Ρυθμίσεις';
+translations.el['tutorial.patient.settings.body'] = 'Από εδώ αλλάζεις γλώσσα, ειδοποιήσεις και μπορείς να ξαναδείς το tutorial.';
+translations.el['tutorial.pharmacist.dashboard.title'] = 'Πίνακας Ελέγχου';
+translations.el['tutorial.pharmacist.dashboard.body'] = 'Εδώ βλέπεις γρήγορα την εικόνα του φαρμακείου σου και τις βασικές ενέργειες.';
+translations.el['tutorial.pharmacist.inventory.title'] = 'Απόθεμα';
+translations.el['tutorial.pharmacist.inventory.body'] = 'Δες και διαχειρίσου το απόθεμα του φαρμακείου σου.';
+translations.el['tutorial.pharmacist.patientRequests.title'] = 'Αιτήματα Ασθενών';
+translations.el['tutorial.pharmacist.patientRequests.body'] = 'Διαχειρίσου αιτήματα και ενημέρωσε την κατάσταση εξυπηρέτησης.';
+translations.el['tutorial.pharmacist.exchangeHub.title'] = 'Κέντρο Ανταλλαγών';
+translations.el['tutorial.pharmacist.exchangeHub.body'] = 'Βρες προσφορές/ζητήσεις από άλλα φαρμακεία και οργάνωσε ανταλλαγές.';
+translations.el['tutorial.pharmacist.connectionsVerified.title'] = 'Συνδέσεις & Επαλήθευση';
+translations.el['tutorial.pharmacist.connectionsVerified.body'] = 'Διαχειρίσου τις συνδέσεις σου και την κατάσταση επαλήθευσης.';
+translations.el['tutorial.pharmacist.settings.title'] = 'Ρυθμίσεις';
+translations.el['tutorial.pharmacist.settings.body'] = 'Από εδώ αλλάζεις γλώσσα, ειδοποιήσεις και ξαναβλέπεις το tutorial.';
+
+translations.en.tutorialSkip = 'Skip';
+translations.en.tutorialDone = 'Done';
+translations.en.replayTutorial = 'Replay Tutorial';
+translations.en.replayTutorialHelp = 'View a short guided tour of the app again.';
+translations.en['tutorial.patient.search.title'] = 'Search';
+translations.en['tutorial.patient.search.body'] = 'Type a medicine name or active ingredient to find what you need.';
+translations.en['tutorial.patient.nearMe.title'] = 'Near You';
+translations.en['tutorial.patient.nearMe.body'] = 'Filter results based on your area or preferred distance.';
+translations.en['tutorial.patient.availability.title'] = 'Availability';
+translations.en['tutorial.patient.availability.body'] = 'Availability indicators may change. Confirm with the pharmacy before visiting.';
+translations.en['tutorial.patient.request.title'] = 'Request';
+translations.en['tutorial.patient.request.body'] = 'Send a request to a pharmacy to organize pickup.';
+translations.en['tutorial.patient.settings.title'] = 'Settings';
+translations.en['tutorial.patient.settings.body'] = 'From here you can change language, notifications, and replay the tutorial.';
+translations.en['tutorial.pharmacist.dashboard.title'] = 'Dashboard Overview';
+translations.en['tutorial.pharmacist.dashboard.body'] = 'Here you quickly see your pharmacy status and the main actions.';
+translations.en['tutorial.pharmacist.inventory.title'] = 'Inventory';
+translations.en['tutorial.pharmacist.inventory.body'] = 'View and manage your pharmacy inventory.';
+translations.en['tutorial.pharmacist.patientRequests.title'] = 'Patient Requests';
+translations.en['tutorial.pharmacist.patientRequests.body'] = 'Manage requests and update the service status.';
+translations.en['tutorial.pharmacist.exchangeHub.title'] = 'Exchange Hub';
+translations.en['tutorial.pharmacist.exchangeHub.body'] = 'Find offers/needs from other pharmacies and organize exchanges.';
+translations.en['tutorial.pharmacist.connectionsVerified.title'] = 'Connections & Verification';
+translations.en['tutorial.pharmacist.connectionsVerified.body'] = 'Manage your connections and your verification status.';
+translations.en['tutorial.pharmacist.settings.title'] = 'Settings';
+translations.en['tutorial.pharmacist.settings.body'] = 'From here you can change language, notifications, and replay the tutorial.';
 
 const LanguageContext = createContext();
 

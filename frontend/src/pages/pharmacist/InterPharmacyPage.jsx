@@ -9,7 +9,7 @@ import { Card, CardContent } from '../../components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../../components/ui/dialog';
 import { EmptyState } from '../../components/ui/empty-states';
 import { SkeletonList, SkeletonPharmacyCard } from '../../components/ui/skeleton-loaders';
-import { ArrowLeft, Clock3, MessageCircle, Pill } from 'lucide-react';
+import { ArrowLeft, Info, MessageCircle, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 
 const safeText = (value) => (typeof value === 'string' ? value.trim() : '');
@@ -37,6 +37,9 @@ const INTER_PHARMACY_COPY = {
     expiryDateOptional: 'Expiry date (optional)',
     createOfferAction: 'Create offer',
     postDemandAction: 'Post demand',
+    newOfferAction: 'New Offer',
+    newDemandAction: 'New Demand',
+    cancelAction: 'Cancel',
     notesOptional: 'Notes (optional)',
     saving: 'Saving...',
     posting: 'Posting...',
@@ -145,6 +148,9 @@ const INTER_PHARMACY_COPY = {
     expiryDateOptional: 'Ημερομηνία λήξης (προαιρετική)',
     createOfferAction: 'Δημιουργία προσφοράς',
     postDemandAction: 'Καταχώρηση ζήτησης',
+    newOfferAction: 'Νέα Προσφορά',
+    newDemandAction: 'Νέα Ζήτηση',
+    cancelAction: 'Ακύρωση',
     notesOptional: 'Σημειώσεις (προαιρετικά)',
     saving: 'Αποθήκευση...',
     posting: 'Καταχώρηση...',
@@ -396,7 +402,7 @@ function MedicineSearchInput({
 
 export default function InterPharmacyPage() {
   const { user, isPharmacist } = useAuth();
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const navigate = useNavigate();
   const location = useLocation();
   const userId = user?.id || null;
@@ -488,6 +494,8 @@ export default function InterPharmacyPage() {
   const [loadingDemandMatches, setLoadingDemandMatches] = useState(false);
 
   const [busyRequestId, setBusyRequestId] = useState(null);
+  const [isCreateOfferModalOpen, setIsCreateOfferModalOpen] = useState(false);
+  const [isCreateDemandModalOpen, setIsCreateDemandModalOpen] = useState(false);
   const [isRequestDetailsOpen, setIsRequestDetailsOpen] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState(null);
   const [requestDetailsLoading, setRequestDetailsLoading] = useState(false);
@@ -936,6 +944,7 @@ export default function InterPharmacyPage() {
       setOfferQuantity('1');
       setOfferExpiryDate('');
       setOfferNotes('');
+      setIsCreateOfferModalOpen(false);
       await loadData();
     } catch (error) {
       toast.error(error?.message || copy.failedCreateOffer);
@@ -987,6 +996,7 @@ export default function InterPharmacyPage() {
       setDemandQuantity('');
       setDemandExpiryDate('');
       setDemandNotes('');
+      setIsCreateDemandModalOpen(false);
       await loadData();
     } catch (error) {
       toast.error(error?.message || copy.failedPostDemand);
@@ -1250,9 +1260,6 @@ export default function InterPharmacyPage() {
           </Link>
           <div className="min-w-0">
             <h1 className="font-heading font-semibold text-pharma-dark-slate">{copy.pageTitle}</h1>
-            <p className="text-xs text-pharma-slate-grey hidden sm:block">
-              {copy.pageSubtitle}
-            </p>
           </div>
           <div className="ml-auto flex items-center gap-2">
             <span className="hidden md:inline-flex rounded-full px-2.5 py-1 text-xs bg-pharma-teal/10 text-pharma-teal">
@@ -1276,168 +1283,48 @@ export default function InterPharmacyPage() {
         ) : (
           <>
             <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale">
-              <CardContent className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="text-sm text-pharma-dark-slate font-medium">{copy.radiusLabel}</div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {[25, 50, 100].map((value) => (
+              <CardContent className="p-4">
+                <div className="flex flex-col gap-2.5 md:flex-row md:items-center md:justify-between">
+                  <div className="flex items-start gap-1.5 text-[11px] leading-snug text-pharma-slate-grey md:max-w-[62%]">
+                    <Info className="w-3.5 h-3.5 mt-0.5 text-pharma-teal flex-shrink-0" aria-hidden="true" />
+                    <div className="space-y-0.5 min-w-0">
+                      <p className="break-words">{t('interPharmacyDisclaimerLine1')}</p>
+                      <p className="break-words">{t('interPharmacyDisclaimerLine2')}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 md:justify-end">
+                    <span className="text-sm text-pharma-dark-slate font-medium mr-1">{copy.radiusLabel}</span>
+                    {[25, 50, 100].map((value) => (
+                      <Button
+                        key={value}
+                        type="button"
+                        size="sm"
+                        variant={!includeNationwide && radiusKm === value ? 'default' : 'outline'}
+                        className={`rounded-full ${!includeNationwide && radiusKm === value ? 'bg-pharma-teal hover:bg-pharma-teal/90 text-white' : ''}`}
+                        onClick={() => {
+                          setRadiusKm(value);
+                          setIncludeNationwide(false);
+                        }}
+                        data-testid={`exchange-radius-${value}`}
+                      >
+                        {value} {copy.kmSuffix}
+                      </Button>
+                    ))}
                     <Button
-                      key={value}
                       type="button"
                       size="sm"
-                      variant={!includeNationwide && radiusKm === value ? 'default' : 'outline'}
-                      className={`rounded-full ${!includeNationwide && radiusKm === value ? 'bg-pharma-teal hover:bg-pharma-teal/90 text-white' : ''}`}
-                      onClick={() => {
-                        setRadiusKm(value);
-                        setIncludeNationwide(false);
-                      }}
-                      data-testid={`exchange-radius-${value}`}
+                      variant={includeNationwide ? 'default' : 'outline'}
+                      className={`rounded-full ${includeNationwide ? 'bg-pharma-teal hover:bg-pharma-teal/90 text-white' : ''}`}
+                      onClick={() => setIncludeNationwide((current) => !current)}
+                      data-testid="exchange-radius-nationwide"
                     >
-                      {value} {copy.kmSuffix}
+                      {copy.nationwide}
                     </Button>
-                  ))}
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant={includeNationwide ? 'default' : 'outline'}
-                    className={`rounded-full ${includeNationwide ? 'bg-pharma-teal hover:bg-pharma-teal/90 text-white' : ''}`}
-                    onClick={() => setIncludeNationwide((current) => !current)}
-                    data-testid="exchange-radius-nationwide"
-                  >
-                    {copy.nationwide}
-                  </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
-
-            <div className="grid gap-6 lg:grid-cols-2">
-              <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale">
-                <CardContent className="p-5 space-y-4">
-                  <div className="flex items-start gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-pharma-teal/10 text-pharma-teal flex items-center justify-center">
-                      <Pill className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <h2 className="font-heading font-semibold text-pharma-dark-slate">{copy.createOfferTitle}</h2>
-                      <p className="text-xs text-pharma-slate-grey">{copy.createOfferDescription}</p>
-                    </div>
-                  </div>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <MedicineSearchInput
-                      className="md:col-span-2"
-                      value={offerMedicineQuery}
-                      onValueChange={handleOfferMedicineQueryChange}
-                      options={offerMedicineOptions}
-                      onSelect={selectOfferMedicine}
-                      searching={searchingOfferMedicines}
-                      placeholder={copy.searchMedicinePlaceholder}
-                      searchingLabel={copy.searchingMedicines}
-                      emptyLabel={copy.noMedicineResults}
-                      testId="exchange-offer-medicine-select"
-                    />
-                    <div className="space-y-1">
-                      <p className="text-[11px] text-pharma-slate-grey px-1">{copy.quantity}</p>
-                      <Input
-                        type="number"
-                        min="1"
-                        className="h-10 rounded-xl"
-                        value={offerQuantity}
-                        onChange={(e) => setOfferQuantity(e.target.value)}
-                        placeholder={copy.quantity}
-                        data-testid="exchange-offer-quantity-input"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <p className="text-[11px] text-pharma-slate-grey px-1">{copy.expiryDateOptional}</p>
-                      <Input
-                        type="date"
-                        className="h-10 rounded-xl [color-scheme:light]"
-                        value={offerExpiryDate}
-                        onChange={(e) => setOfferExpiryDate(e.target.value)}
-                        data-testid="exchange-offer-expiry-input"
-                      />
-                    </div>
-                    <Button
-                      className="rounded-full bg-pharma-teal hover:bg-pharma-teal/90 md:col-span-2"
-                      onClick={createOffer}
-                      disabled={creatingOffer}
-                      data-testid="exchange-offer-create-submit"
-                    >
-                      {creatingOffer ? copy.saving : copy.createOfferAction}
-                    </Button>
-                  </div>
-                  <Input
-                    value={offerNotes}
-                    onChange={(e) => setOfferNotes(e.target.value)}
-                    placeholder={copy.notesOptional}
-                    data-testid="exchange-offer-notes-input"
-                  />
-                </CardContent>
-              </Card>
-
-              <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale">
-                <CardContent className="p-5 space-y-4">
-                  <div className="flex items-start gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-pharma-steel-blue/10 text-pharma-steel-blue flex items-center justify-center">
-                      <Clock3 className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <h2 className="font-heading font-semibold text-pharma-dark-slate">{copy.needMedicineTitle}</h2>
-                      <p className="text-xs text-pharma-slate-grey">{copy.needMedicineDescription}</p>
-                    </div>
-                  </div>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <MedicineSearchInput
-                      className="md:col-span-2"
-                      value={demandMedicineQuery}
-                      onValueChange={handleDemandMedicineQueryChange}
-                      options={demandMedicineOptions}
-                      onSelect={selectDemandMedicine}
-                      searching={searchingDemandMedicines}
-                      placeholder={copy.searchMedicinePlaceholder}
-                      searchingLabel={copy.searchingMedicines}
-                      emptyLabel={copy.noMedicineResults}
-                      testId="exchange-demand-medicine-select"
-                    />
-                    <div className="space-y-1">
-                      <p className="text-[11px] text-pharma-slate-grey px-1">{copy.quantityOptional}</p>
-                      <Input
-                        type="number"
-                        min="1"
-                        className="h-10 rounded-xl"
-                        value={demandQuantity}
-                        onChange={(e) => setDemandQuantity(e.target.value)}
-                        placeholder={copy.quantityOptional}
-                        data-testid="exchange-demand-quantity-input"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <p className="text-[11px] text-pharma-slate-grey px-1">{copy.expiryDateOptional}</p>
-                      <Input
-                        type="date"
-                        className="h-10 rounded-xl [color-scheme:light]"
-                        value={demandExpiryDate}
-                        onChange={(e) => setDemandExpiryDate(e.target.value)}
-                        data-testid="exchange-demand-expiry-input"
-                      />
-                    </div>
-                    <Button
-                      className="rounded-full bg-pharma-teal hover:bg-pharma-teal/90 md:col-span-2"
-                      onClick={postDemand}
-                      disabled={postingDemand}
-                      data-testid="exchange-demand-post-submit"
-                    >
-                      {postingDemand ? copy.posting : copy.postDemandAction}
-                    </Button>
-                  </div>
-                  <Input
-                    value={demandNotes}
-                    onChange={(e) => setDemandNotes(e.target.value)}
-                    placeholder={copy.notesOptional}
-                    data-testid="exchange-demand-notes-input"
-                  />
-                </CardContent>
-              </Card>
-            </div>
 
             {latestDemandId && (
               <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale flex flex-col max-h-[45vh]">
@@ -1509,9 +1396,20 @@ export default function InterPharmacyPage() {
                       <h2 className="font-heading font-semibold text-pharma-dark-slate">{copy.myOpenDemands}</h2>
                       <p className="text-xs text-pharma-slate-grey">{copy.myOpenDemandsSubtitle}</p>
                     </div>
-                    <span className="text-xs rounded-full px-2.5 py-1 bg-pharma-steel-blue/10 text-pharma-steel-blue">
-                      {myOpenDemands.length}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        className="rounded-full bg-pharma-teal hover:bg-pharma-teal/90 gap-1.5"
+                        onClick={() => setIsCreateDemandModalOpen(true)}
+                        data-testid="exchange-open-demand-modal"
+                      >
+                        <Plus className="w-4 h-4" />
+                        {copy.newDemandAction}
+                      </Button>
+                      <span className="text-xs rounded-full px-2.5 py-1 bg-pharma-steel-blue/10 text-pharma-steel-blue">
+                        {myOpenDemands.length}
+                      </span>
+                    </div>
                   </div>
                   <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-4">
                     {myOpenDemands.length === 0 ? (
@@ -1644,9 +1542,20 @@ export default function InterPharmacyPage() {
                       <h2 className="font-heading font-semibold text-pharma-dark-slate">{copy.myOffers}</h2>
                       <p className="text-xs text-pharma-slate-grey">{copy.myOffersSubtitle}</p>
                     </div>
-                    <span className="text-xs rounded-full px-2.5 py-1 bg-pharma-slate-grey/10 text-pharma-slate-grey">
-                      {myOffers.length}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        className="rounded-full bg-pharma-teal hover:bg-pharma-teal/90 gap-1.5"
+                        onClick={() => setIsCreateOfferModalOpen(true)}
+                        data-testid="exchange-open-offer-modal"
+                      >
+                        <Plus className="w-4 h-4" />
+                        {copy.newOfferAction}
+                      </Button>
+                      <span className="text-xs rounded-full px-2.5 py-1 bg-pharma-slate-grey/10 text-pharma-slate-grey">
+                        {myOffers.length}
+                      </span>
+                    </div>
                   </div>
                   <div className="flex-1 min-h-0 overflow-y-auto pr-1">
                     {myOffers.length === 0 ? (
@@ -1875,6 +1784,156 @@ export default function InterPharmacyPage() {
           </>
         )}
       </main>
+
+      <Dialog open={isCreateDemandModalOpen} onOpenChange={setIsCreateDemandModalOpen}>
+        <DialogContent className="bg-white rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="font-heading text-xl text-pharma-dark-slate">
+              {copy.postDemandAction}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <p className="text-xs text-pharma-slate-grey">{copy.needMedicineDescription}</p>
+              <MedicineSearchInput
+                value={demandMedicineQuery}
+                onValueChange={handleDemandMedicineQueryChange}
+                options={demandMedicineOptions}
+                onSelect={selectDemandMedicine}
+                searching={searchingDemandMedicines}
+                placeholder={copy.searchMedicinePlaceholder}
+                searchingLabel={copy.searchingMedicines}
+                emptyLabel={copy.noMedicineResults}
+                testId="exchange-demand-medicine-select"
+              />
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-1">
+                <p className="text-[11px] text-pharma-slate-grey px-1">{copy.quantityOptional}</p>
+                <Input
+                  type="number"
+                  min="1"
+                  className="h-10 rounded-xl"
+                  value={demandQuantity}
+                  onChange={(e) => setDemandQuantity(e.target.value)}
+                  placeholder={copy.quantityOptional}
+                  data-testid="exchange-demand-quantity-input"
+                />
+              </div>
+              <div className="space-y-1">
+                <p className="text-[11px] text-pharma-slate-grey px-1">{copy.expiryDateOptional}</p>
+                <Input
+                  type="date"
+                  className="h-10 rounded-xl [color-scheme:light]"
+                  value={demandExpiryDate}
+                  onChange={(e) => setDemandExpiryDate(e.target.value)}
+                  data-testid="exchange-demand-expiry-input"
+                />
+              </div>
+            </div>
+            <Input
+              value={demandNotes}
+              onChange={(e) => setDemandNotes(e.target.value)}
+              placeholder={copy.notesOptional}
+              data-testid="exchange-demand-notes-input"
+            />
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="rounded-full"
+              onClick={() => setIsCreateDemandModalOpen(false)}
+            >
+              {copy.cancelAction}
+            </Button>
+            <Button
+              className="rounded-full bg-pharma-teal hover:bg-pharma-teal/90"
+              onClick={postDemand}
+              disabled={postingDemand}
+              data-testid="exchange-demand-post-submit"
+            >
+              {postingDemand ? copy.posting : copy.postDemandAction}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isCreateOfferModalOpen} onOpenChange={setIsCreateOfferModalOpen}>
+        <DialogContent className="bg-white rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="font-heading text-xl text-pharma-dark-slate">
+              {copy.createOfferTitle}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <p className="text-xs text-pharma-slate-grey">{copy.createOfferDescription}</p>
+              <MedicineSearchInput
+                value={offerMedicineQuery}
+                onValueChange={handleOfferMedicineQueryChange}
+                options={offerMedicineOptions}
+                onSelect={selectOfferMedicine}
+                searching={searchingOfferMedicines}
+                placeholder={copy.searchMedicinePlaceholder}
+                searchingLabel={copy.searchingMedicines}
+                emptyLabel={copy.noMedicineResults}
+                testId="exchange-offer-medicine-select"
+              />
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-1">
+                <p className="text-[11px] text-pharma-slate-grey px-1">{copy.quantity}</p>
+                <Input
+                  type="number"
+                  min="1"
+                  className="h-10 rounded-xl"
+                  value={offerQuantity}
+                  onChange={(e) => setOfferQuantity(e.target.value)}
+                  placeholder={copy.quantity}
+                  data-testid="exchange-offer-quantity-input"
+                />
+              </div>
+              <div className="space-y-1">
+                <p className="text-[11px] text-pharma-slate-grey px-1">{copy.expiryDateOptional}</p>
+                <Input
+                  type="date"
+                  className="h-10 rounded-xl [color-scheme:light]"
+                  value={offerExpiryDate}
+                  onChange={(e) => setOfferExpiryDate(e.target.value)}
+                  data-testid="exchange-offer-expiry-input"
+                />
+              </div>
+            </div>
+            <Input
+              value={offerNotes}
+              onChange={(e) => setOfferNotes(e.target.value)}
+              placeholder={copy.notesOptional}
+              data-testid="exchange-offer-notes-input"
+            />
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              className="rounded-full"
+              onClick={() => setIsCreateOfferModalOpen(false)}
+            >
+              {copy.cancelAction}
+            </Button>
+            <Button
+              className="rounded-full bg-pharma-teal hover:bg-pharma-teal/90"
+              onClick={createOffer}
+              disabled={creatingOffer}
+              data-testid="exchange-offer-create-submit"
+            >
+              {creatingOffer ? copy.saving : copy.createOfferAction}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={isRequestDetailsOpen}

@@ -21,6 +21,7 @@ import {
   Clock,
   Shield,
   Pill,
+  Info,
   Search,
   MessageCircle
 } from 'lucide-react';
@@ -65,7 +66,7 @@ export default function PharmacistConnectionsPage() {
   const { user, profile, isPharmacist } = useAuth();
   const userId = user?.id || null;
   const profileId = profile?.id || null;
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const navigate = useNavigate();
 
   const [connections, setConnections] = useState([]);
@@ -531,6 +532,11 @@ export default function PharmacistConnectionsPage() {
                 />
               </div>
             )}
+          </div>
+
+          <div className="mb-4 flex items-start gap-2 text-sm text-pharma-slate-grey">
+            <Info className="w-4 h-4 mt-0.5 text-pharma-silver flex-shrink-0" aria-hidden="true" />
+            <p>{t('connectionsDisclaimer')}</p>
           </div>
 
           {loading ? (

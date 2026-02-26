@@ -97,6 +97,36 @@ export default function PatientPharmaciesPage() {
         }));
       }
 
+      const missingAvatarIds = Array.from(
+        new Set(
+          nextRows
+            .filter((row) => row?.id && !row?.avatar_path)
+            .map((row) => row.id)
+        )
+      );
+
+      if (missingAvatarIds.length > 0) {
+        const { data: avatarRows, error: avatarError } = await supabase
+          .from('pharmacies')
+          .select('id, avatar_path')
+          .in('id', missingAvatarIds);
+
+        if (!avatarError && Array.isArray(avatarRows) && avatarRows.length > 0) {
+          const avatarPathById = new Map(
+            avatarRows
+              .filter((row) => row?.id && row?.avatar_path)
+              .map((row) => [row.id, row.avatar_path])
+          );
+          if (avatarPathById.size > 0) {
+            nextRows = nextRows.map((row) => {
+              if (!row?.id) return row;
+              const resolvedAvatarPath = avatarPathById.get(row.id);
+              return resolvedAvatarPath ? { ...row, avatar_path: resolvedAvatarPath } : row;
+            });
+          }
+        }
+      }
+
       setPharmacies((prev) => (arePharmaciesEqual(prev, nextRows) ? prev : nextRows));
       loadedRef.current = true;
     } catch (error) {

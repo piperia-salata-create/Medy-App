@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import useInstallHandler from '../hooks/useInstallHandler';
+import { openConsentPreferences } from '../lib/consent';
 import { 
   Pill, 
   MapPin, 
@@ -83,7 +84,7 @@ export default function LandingPage() {
             </span>
           </Link>
 
-          <div className="justify-self-center">
+          <div className="justify-self-center lg:hidden">
             <Select value={language} onValueChange={setLanguage}>
               <SelectTrigger className="w-[84px] sm:w-[100px] h-10 rounded-full bg-pharma-ice-blue/50 border-0 text-sm px-2.5 sm:px-3" data-testid="language-select-landing">
                 <Globe className="w-3.5 h-3.5 mr-1 text-pharma-slate-grey flex-shrink-0" />
@@ -96,7 +97,19 @@ export default function LandingPage() {
             </Select>
           </div>
 
-          <div className="justify-self-end flex items-center gap-2">
+          <div className="justify-self-end lg:col-start-3 flex items-center gap-2 lg:gap-2.5">
+            <div className="hidden lg:block">
+              <Select value={language} onValueChange={setLanguage}>
+                <SelectTrigger className="w-[100px] h-10 rounded-full bg-pharma-ice-blue/50 border-0 text-sm px-3" data-testid="language-select-landing-desktop">
+                  <Globe className="w-3.5 h-3.5 mr-1 text-pharma-slate-grey flex-shrink-0" />
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="el">{t('greek')}</SelectItem>
+                  <SelectItem value="en">{t('english')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <Link to={authCtaPath}>
               <Button
                 variant="outline"
@@ -348,6 +361,13 @@ export default function LandingPage() {
               <Link to="/privacy" className="text-white/70 hover:text-white text-sm transition-colors">
                 {language === 'el' ? 'Απόρρητο' : 'Privacy'}
               </Link>
+              <button
+                type="button"
+                className="text-white/70 hover:text-white text-sm transition-colors"
+                onClick={openConsentPreferences}
+              >
+                {t('privacySettings')}
+              </button>
               <Link to="/report-bug" className="text-white/70 hover:text-white text-sm transition-colors">
                 {language === 'el' ? 'Αναφορά Σφάλματος' : 'Report a Bug'}
               </Link>

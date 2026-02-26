@@ -26,7 +26,8 @@ import {
   Send,
   ArrowRight,
   Package,
-  Boxes
+  Boxes,
+  Info
 } from 'lucide-react';
 
 const isDev = process.env.NODE_ENV !== 'production';
@@ -852,14 +853,25 @@ export default function PharmacistDashboardLazy() {
           {/* Desktop Nav */}
           <nav className="hidden md:flex items-center gap-2">
             <Link to="/pharmacist/inventory">
-              <Button variant="ghost" className="rounded-full gap-2" data-testid="nav-inventory-btn">
-                <Boxes className="w-4 h-4" />
+              <Button variant="ghost" className="rounded-full gap-2" data-testid="nav-inventory-btn" data-tutorial="pharmacist-inventory">
+                <Boxes className="w-4 h-4 text-pharma-teal" />
                 {language === 'el' ? 'Απόθεμα' : 'Inventory'}
               </Button>
             </Link>
+            <Link to="/pharmacist/inter-pharmacy">
+              <Button
+                variant="ghost"
+                className="rounded-full gap-2"
+                data-testid="nav-inter-pharmacy-btn"
+                data-tutorial="pharmacist-exchange-hub"
+              >
+                <Send className="w-4 h-4 text-pharma-teal" />
+                {language === 'el' ? 'Κέντρο Ανταλλαγών' : 'Exchange Hub'}
+              </Button>
+            </Link>
             <Link to="/pharmacist/connections">
-              <Button variant="ghost" className="rounded-full gap-2" data-testid="nav-connections-btn">
-                <Users className="w-4 h-4" />
+              <Button variant="ghost" className="rounded-full gap-2" data-testid="nav-connections-btn" data-tutorial="pharmacist-verified-or-connections">
+                <Users className="w-4 h-4 text-pharma-teal" />
                 {language === 'el' ? 'Συνδέσεις' : 'Connections'}
                 {connections.incoming > 0 && (
                   <span className="bg-pharma-coral text-white text-xs px-1.5 py-0.5 rounded-full">
@@ -871,10 +883,10 @@ export default function PharmacistDashboardLazy() {
             <Link to="/pharmacist/notifications">
               <Button
                 variant="ghost"
-                className={`rounded-full gap-2 relative ${exchangeUnreadCount > 0 ? 'bg-pharma-teal/10 text-pharma-teal hover:bg-pharma-teal/15' : ''}`}
+                className={`rounded-full gap-2 relative ${exchangeUnreadCount > 0 ? 'bg-pharma-teal/10 hover:bg-pharma-teal/15' : ''}`}
                 data-testid="nav-notifications-btn"
               >
-                <Bell className="w-4 h-4" />
+                <Bell className="w-4 h-4 text-pharma-teal" />
                 {language === 'el' ? 'Ειδοποιήσεις' : 'Notifications'}
                 {exchangeUnreadCount > 0 && (
                   <span className="bg-pharma-coral text-white text-xs px-1.5 py-0.5 rounded-full">
@@ -884,8 +896,14 @@ export default function PharmacistDashboardLazy() {
               </Button>
             </Link>
             <Link to="/pharmacist/settings">
-              <Button variant="ghost" size="icon" className="rounded-full" data-testid="nav-settings-btn">
-                <Settings className="w-5 h-5" />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="rounded-full"
+                data-testid="nav-settings-btn"
+                data-tutorial="pharmacist-settings"
+              >
+                <Settings className="w-5 h-5 text-pharma-teal" />
               </Button>
             </Link>
             <Button 
@@ -895,7 +913,7 @@ export default function PharmacistDashboardLazy() {
               onClick={handleSignOut}
               data-testid="signout-btn"
             >
-              <LogOut className="w-5 h-5" />
+              <LogOut className="w-5 h-5 text-pharma-teal" />
             </Button>
           </nav>
 
@@ -906,6 +924,7 @@ export default function PharmacistDashboardLazy() {
             className="md:hidden rounded-full"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             data-testid="mobile-menu-btn"
+            data-tutorial="pharmacist-settings"
           >
             {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </Button>
@@ -915,14 +934,20 @@ export default function PharmacistDashboardLazy() {
         {mobileMenuOpen && (
           <div className="md:hidden bg-white border-t border-pharma-grey-pale p-4 space-y-2 animate-slide-up">
             <Link to="/pharmacist/inventory" onClick={() => setMobileMenuOpen(false)}>
-              <Button variant="ghost" className="w-full justify-start gap-3 rounded-xl">
-                <Boxes className="w-5 h-5" />
+              <Button variant="ghost" className="w-full justify-start gap-3 rounded-xl" data-tutorial="pharmacist-inventory">
+                <Boxes className="w-5 h-5 text-pharma-teal" />
                 {language === 'el' ? 'Απόθεμα' : 'Inventory'}
               </Button>
             </Link>
+            <Link to="/pharmacist/inter-pharmacy" onClick={() => setMobileMenuOpen(false)}>
+              <Button variant="ghost" className="w-full justify-start gap-3 rounded-xl" data-tutorial="pharmacist-exchange-hub">
+                <Send className="w-5 h-5 text-pharma-teal" />
+                {language === 'el' ? 'Κέντρο Ανταλλαγών' : 'Exchange Hub'}
+              </Button>
+            </Link>
             <Link to="/pharmacist/connections" onClick={() => setMobileMenuOpen(false)}>
-              <Button variant="ghost" className="w-full justify-start gap-3 rounded-xl">
-                <Users className="w-5 h-5" />
+              <Button variant="ghost" className="w-full justify-start gap-3 rounded-xl" data-tutorial="pharmacist-verified-or-connections">
+                <Users className="w-5 h-5 text-pharma-teal" />
                 {language === 'el' ? 'Συνδέσεις' : 'Connections'}
                 {connections.incoming > 0 && (
                   <span className="bg-pharma-coral text-white text-xs px-1.5 py-0.5 rounded-full ml-auto">
@@ -933,7 +958,7 @@ export default function PharmacistDashboardLazy() {
             </Link>
             <Link to="/pharmacist/notifications" onClick={() => setMobileMenuOpen(false)}>
               <Button variant="ghost" className="w-full justify-start gap-3 rounded-xl">
-                <Bell className="w-5 h-5" />
+                <Bell className="w-5 h-5 text-pharma-teal" />
                 {language === 'el' ? 'Ειδοποιήσεις' : 'Notifications'}
                 {exchangeUnreadCount > 0 && (
                   <span className="bg-pharma-coral text-white text-xs px-1.5 py-0.5 rounded-full ml-auto">
@@ -944,7 +969,7 @@ export default function PharmacistDashboardLazy() {
             </Link>
             <Link to="/pharmacist/settings" onClick={() => setMobileMenuOpen(false)}>
               <Button variant="ghost" className="w-full justify-start gap-3 rounded-xl">
-                <Settings className="w-5 h-5" />
+                <Settings className="w-5 h-5 text-pharma-teal" />
                 {language === 'el' ? 'Ρυθμίσεις' : 'Settings'}
               </Button>
             </Link>
@@ -953,7 +978,7 @@ export default function PharmacistDashboardLazy() {
               className="w-full justify-start gap-3 rounded-xl text-pharma-slate-grey"
               onClick={handleSignOut}
             >
-              <LogOut className="w-5 h-5" />
+              <LogOut className="w-5 h-5 text-pharma-teal" />
               {language === 'el' ? 'Αποσύνδεση' : 'Sign Out'}
             </Button>
           </div>
@@ -977,7 +1002,7 @@ export default function PharmacistDashboardLazy() {
           </div>
         ) : (
           <>
-            <div className="grid gap-6 md:grid-cols-2 items-stretch">
+            <div className="grid gap-6 md:grid-cols-2 items-stretch" data-tutorial="pharmacist-dashboard-main">
             {/* STATUS CARD - On Duty Toggle */}
             <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale page-enter h-full w-full" data-testid="status-card">
               <CardHeader className="p-4 pb-2">
@@ -992,6 +1017,7 @@ export default function PharmacistDashboardLazy() {
                         ? 'bg-pharma-sea-green/10 text-pharma-sea-green'
                         : 'bg-pharma-coral/10 text-pharma-coral'
                     }`}
+                    data-tutorial="pharmacist-verified-or-connections"
                   >
                     {isVerified ? t('pharmacyVerifiedBadge') : t('pharmacyNotVerifiedBadge')}
                   </span>
@@ -1028,7 +1054,14 @@ export default function PharmacistDashboardLazy() {
               <CardHeader className="pb-2">
                 <CardTitle className="font-heading text-lg text-pharma-dark-slate flex items-center gap-2">
                   <Package className="w-5 h-5 text-pharma-coral" />
-                  {language === 'el' ? '\u0391\u03b9\u03c4\u03ae\u03bc\u03b1\u03c4\u03b1 \u0391\u03c0\u03bf\u03b8\u03ad\u03bc\u03b1\u03c4\u03bf\u03c2' : 'Stock Requests'}
+                  <span className="flex flex-col leading-tight">
+                    <span className="text-xs font-medium text-pharma-slate-grey">
+                      {language === 'el' ? 'Κέντρο Ανταλλαγών' : 'Exchange Hub'}
+                    </span>
+                    <span>
+                      {language === 'el' ? 'Αιτήματα Αποθέματος' : 'Stock Requests'}
+                    </span>
+                  </span>
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-2">
@@ -1062,7 +1095,7 @@ export default function PharmacistDashboardLazy() {
                 )}
 
                 <Link to="/pharmacist/inter-pharmacy">
-                  <Button variant="outline" className="w-full rounded-full gap-2" data-testid="view-requests-btn">
+                  <Button variant="outline" className="w-full rounded-full gap-2" data-testid="view-requests-btn" data-tutorial="pharmacist-exchange-hub">
                     {language === 'el' ? '\u0394\u03b9\u03b1\u03c7\u03b5\u03af\u03c1\u03b9\u03c3\u03b7 \u0391\u03b9\u03c4\u03b7\u03bc\u03ac\u03c4\u03c9\u03bd' : 'Manage Requests'}
                     <ArrowRight className="w-4 h-4" />
                   </Button>
@@ -1072,7 +1105,7 @@ export default function PharmacistDashboardLazy() {
             </div>
 
             {/* INCOMING PATIENT REQUESTS */}
-            <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale page-enter w-full" style={{ animationDelay: '0.2s' }} data-testid="incoming-patient-requests-card">
+            <Card className="bg-white rounded-2xl shadow-card border-pharma-grey-pale page-enter w-full" style={{ animationDelay: '0.2s' }} data-testid="incoming-patient-requests-card" data-tutorial="pharmacist-patient-requests">
               <CardHeader className="pb-2">
                 <CardTitle className="font-heading text-lg text-pharma-dark-slate flex items-center gap-2">
                   <Inbox className="w-5 h-5 text-pharma-teal" />
@@ -1173,6 +1206,7 @@ export default function PharmacistDashboardLazy() {
                       variant="outline"
                       className="w-full rounded-full gap-2 mt-4"
                       data-testid="manage-patient-requests-btn"
+                      data-tutorial="pharmacist-patient-requests"
                     >
                       {language === 'el' ? '\u0394\u03b9\u03b1\u03c7\u03b5\u03af\u03c1\u03b9\u03c3\u03b7 \u0391\u03b9\u03c4\u03b7\u03bc\u03ac\u03c4\u03c9\u03bd' : 'Manage Requests'}
                       <ArrowRight className="w-4 h-4" />
@@ -1184,6 +1218,7 @@ export default function PharmacistDashboardLazy() {
                     className="w-full rounded-full gap-2 mt-4"
                     disabled
                     data-testid="manage-patient-requests-btn"
+                    data-tutorial="pharmacist-patient-requests"
                   >
                     {language === 'el' ? '\u0394\u03b9\u03b1\u03c7\u03b5\u03af\u03c1\u03b9\u03c3\u03b7 \u0391\u03b9\u03c4\u03b7\u03bc\u03ac\u03c4\u03c9\u03bd' : 'Manage Requests'}
                     <ArrowRight className="w-4 h-4" />
@@ -1194,6 +1229,13 @@ export default function PharmacistDashboardLazy() {
           </>
         )}
       </main>
+
+      <div className="max-w-6xl mx-auto px-4 pb-6">
+        <div className="flex items-start gap-2 text-sm text-pharma-slate-grey">
+          <Info className="w-4 h-4 mt-0.5 text-pharma-silver flex-shrink-0" aria-hidden="true" />
+          <p>{t('dashboardAvailabilityDisclaimer')}</p>
+        </div>
+      </div>
 
       {/* Invite Dialog */}
       <Dialog open={inviteDialogOpen} onOpenChange={setInviteDialogOpen}>
